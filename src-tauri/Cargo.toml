@@ -1,0 +1,21 @@
+[package]
+name = "whisper-desk"
+version = "0.8.1"
+description = "Local transcription and subtitle editor"
+authors = ["Filipe"]
+edition = "2021"
+rust-version = "1.89"
+
+[lib]
+name = "whisper_desk_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rfd = "0.15"
+base64 = "0.22"

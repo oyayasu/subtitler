@@ -1,0 +1,67 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import http from 'node:http';import path from 'node:path';import {createRequire} from 'node:module';import {fileURLToPath} from 'node:url';import {fixture} from './fixtures.mjs';
+const {chromium}=createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE||'playwright');
+const root=fileURLToPath(new URL('../src/',import.meta.url));
+const wav=Buffer.alloc(44+7*32000);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(16000,24);wav.writeUInt32LE(32000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);
+const server=http.createServer((q,r)=>{try{const f=path.join(root,decodeURIComponent(q.url.split('?')[0])==='/'?'index.html':decodeURIComponent(q.url.split('?')[0]));const data=q.url.startsWith('/audio.wav')?wav:fs.readFileSync(f);r.setHeader('Content-Type',q.url.includes('.js')?'text/javascript':q.url.includes('.css')?'text/css':q.url.includes('.wav')?'audio/wav':'text/html');r.end(data);}catch{r.writeHead(404);r.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({executablePath:process.env.TEST_BROWSER_PATH||undefined,headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--no-zygote','--single-process','--disable-gpu','--no-process-singleton']});
+const errors=[];
+try{
+ const context=await browser.newContext({viewport:{width:1260,height:860}});
+ await context.addInitScript(raw=>{window.raw=raw;window.events={};window.files={};window.writes=[];window.opens=[];window.nextAudio='/outside/Test.wav';window.nextText='/text.txt';window.nextSubtitles='/subs.srt';window.refText='A candle lit the room. Her brother was already there.';window.claimed=[];
+ const info=p=>({path:p,name:p.split('/').at(-1),fingerprint:p.includes('other')?'other':'test-audio',size:224044,modified:1,duration:7});
+ window.__TAURI__={core:{convertFileSrc:()=>location.origin+'/audio.wav',invoke:async(n,a={})=>{
+ if(n==='take_document_open')return window.initialDocument||null;
+ if(n==='document_title'||n==='finish_document_close')return true;
+ if(n==='default_transcript_directory')return '/Desktop/Subtitler';
+ if(n==='allocate_document'){let p=a.directory+'/'+a.name+'.subtitler',i=2;while(window.files[p])p=a.directory+'/'+a.name+' ('+(i++)+').subtitler';window.files[p]='';return p;}
+ if(n==='claim_document'||n==='claim_recording')return true;
+ if(n==='write_document'){window.files[a.path]=a.data;window.writes.push(a);return true;}
+ if(n==='choose_document_save')return '/Desktop/Independent.subtitler';
+ if(n==='new_document_window'){window.opens.push(a);return 'document-2';}
+ if(n==='open_document')return {path:a.path,data:JSON.parse(window.files[a.path]),audioPath:window.hasEmbedded?'/cache/embedded.wav':null};
+ if(n==='read_studio_request')return null;
+ if(n==='claim_studio_request')return true;
+ if(n==='audio_file_info')return info(a.path);
+ if(n==='audio_status')return {originalExists:!a.path.includes('/missing/'),previewExists:false};
+ if(n==='discover_tools')return {whisper:'/whisper',ffmpeg:'/ffmpeg',whisperxPython:'/python',models:[{name:'Turbo',path:'/model'}]};
+ if(n==='prepare_audio')return {...info(a.path),previewPath:null};
+ if(n==='pick_file')return a.kind==='audio'?window.nextAudio:a.kind==='script'?window.nextText:a.kind==='subtitles'?window.nextSubtitles:a.kind==='project'?'/Desktop/Test copy.subtitler':null;
+ if(n==='read_transcript')return a.path==='/text.txt'?window.refText:a.path==='/subs.srt'?'1\n00:00:00,500 --> 00:00:02,600\nA candle lit the room.\n\n2\n00:00:04,000 --> 00:00:06,000\nHer brother was already there.':window.files[a.path];
+ if(n==='transcribe'){window.transcribed=a;return {source:info(a.path),transcript:window.raw,pauses:[{id:'p1',start:2.8,end:3.9},{id:'p2',start:2.8,end:3.9}]};}
+ if(n==='align_words'){window.alignCalls=(window.alignCalls||0)+1;return {format:'subtitler-alignment-v1',version:'test',duration:7,language:'en',cues:a.request.cues.map(c=>({...c,words:c.words.map(w=>({...w,status:'aligned'}))}))};}
+ if(n==='choose_transcript_directory')return '/New parent';
+ if(n==='move_transcript_folder')return {old:a.directory,directory:'/New parent/Subtitler',changed:true};
+ if(n==='save_project_files'){const p=JSON.parse(a.projectData).filePath;window.files[p]=a.projectData;window.sharedWrites=(window.sharedWrites||[]).concat(a);return {projectFile:p,audioRelativePath:null};}
+ if(n==='inspect_project_folder')return {directory:'/project',projectId:'ss',projectName:'Test project',activeRecording:info('/outside/Test.wav'),audioCandidates:[info('/outside/Test.wav')],transcripts:[],script:{format:'subtitler-script-v1',schemaVersion:1,studioProjectId:'ss',chapters:[{id:'c1',title:'Chapter 1',text:window.refText}]}};
+ if(n==='cancel_transcription'||n==='reveal_transcript_file')return null;
+ throw Error('Unexpected native command '+n);
+ }},event:{listen:async(n,f)=>{window.events[n]=f;return ()=>{};}}};
+ },fixture());
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(String(e)));page.on('console',m=>{if(m.type()==='error')console.log('browser:',m.text());});await page.goto('http://127.0.0.1:'+server.address().port);await page.locator('#project-name').waitFor();await page.waitForFunction(()=>window.events['subtitler-menu']);
+ assert.equal(await page.locator('#sidebar').count(),0);assert.match(await page.locator('#saved-location').textContent(),/Not saved/);
+ await page.locator('[data-action="reference-text"]').click();await page.locator('#reference-input').fill('A candle lit the room. Her brother was already there.');await page.locator('[data-action="apply-reference"]').click();assert.equal(await page.locator('.cue').count(),0);await page.locator('#audio-placeholder button').click();await page.waitForFunction(()=>Object.values(window.files).some(v=>v.includes('Test.wav')));
+ assert.match(await page.locator('#audio-name').textContent(),/Test.wav/);assert.match(await page.locator('#saved-location').textContent(),/Desktop\/Subtitler/);
+ await page.evaluate(()=>window.events['subtitler-menu']({payload:'import-subtitles'}));await page.locator('.cue').first().waitFor();assert.equal(await page.locator('.cue').count(),2);assert.match(await page.locator('#audio-name').textContent(),/Test.wav/);
+ await page.keyboard.press('Meta+s');await page.waitForTimeout(1500);const count=await page.evaluate(()=>window.writes.length);await page.keyboard.press('Meta+s');await page.waitForTimeout(300);assert.equal(await page.evaluate(()=>window.writes.length),count);
+ await page.locator('[data-action="clear-transcript"]').click();await page.locator('[data-action="confirm-clear-transcript"]').click();assert.equal(await page.locator('.cue').count(),0);await page.keyboard.press('Control+z');assert.equal(await page.locator('.cue').count(),2);
+ await page.evaluate(()=>window.events['subtitler-menu']({payload:'new-project'}));assert.equal(await page.evaluate(()=>window.opens.length),1);assert.equal(await page.locator('.cue').count(),2);
+ await page.evaluate(()=>window.events['subtitler-menu']({payload:'save-as'}));await page.waitForFunction(()=>window.files['/Desktop/Independent.subtitler']);assert.match(await page.locator('#saved-location').textContent(),/Independent/);
+ const oldPath='/Desktop/Subtitler/Untitled transcript.subtitler';const before=await page.evaluate(p=>window.files[p],oldPath);await page.locator('#project-name').fill('Independent');await page.locator('#search').click();await page.waitForTimeout(500);assert.equal(await page.evaluate(p=>window.files[p],oldPath),before);
+ await page.locator('[data-action="match-timings"]').click();await page.waitForFunction(()=>window.transcribed);await page.waitForFunction(()=>document.querySelectorAll('.word').length===10);await page.waitForTimeout(500);assert.equal(await page.locator('.pause-row').count(),1);assert.equal(await page.evaluate(()=>window.transcribed.path),'/outside/Test.wav');assert.equal(await page.locator('#match-reference-prompt').isVisible(),false);assert.equal(await page.locator('[data-action="improve-timing"]').isVisible(),false);assert.ok(await page.evaluate(()=>window.alignCalls>=1));
+ await page.locator('[data-action="reference-text"]').click();assert.match(await page.locator('#reference-input').inputValue(),/candle/);await page.locator('[data-action="clear-reference"]').click();assert.equal(await page.locator('#reference-input').inputValue(),'');await page.keyboard.press('Control+z');assert.match(await page.locator('#reference-input').inputValue(),/candle/);await page.locator('[data-action="close-modal"]').click();
+
+ await page.locator('.cue-number').first().click();await page.locator('#subtitle-text').fill('A candle lit the bright room.');await page.locator('[data-action="apply-text"]').click();assert.equal(await page.locator('[data-action="improve-timing"]').isVisible(),true);
+ const recognitionBefore=await page.evaluate(()=>JSON.stringify(window.transcribed));await page.locator('[data-action="improve-timing"]').click();await page.locator('[data-action="run-alignment"]').click();await page.locator('[data-action="close-modal"]').click();assert.equal(await page.locator('[data-action="improve-timing"]').isVisible(),false);assert.equal(await page.evaluate(()=>JSON.stringify(window.transcribed)),recognitionBefore);assert.match(await page.locator('#transcript-list').innerText(),/bright/);
+ const wave=await page.locator('#waveform').boundingBox(),bar=await page.locator('.waveform-resizer').boundingBox();await page.mouse.move(bar.x+bar.width/2,bar.y+bar.height/2);await page.mouse.down();await page.mouse.move(bar.x+bar.width/2,bar.y+bar.height/2-30,{steps:5});await page.mouse.up();assert.ok((await page.locator('#waveform').boundingBox()).height<wave.height);
+ assert.ok(await page.evaluate(()=>Math.abs(document.querySelector('.editor-columns').getBoundingClientRect().bottom-innerHeight)<2));
+ await page.evaluate(()=>window.events['subtitler-menu']({payload:'move-transcript-folder'}));await page.waitForFunction(()=>JSON.parse(localStorage.getItem('whisperDesk.preferences.v1')).transcriptDirectory==='/New parent/Subtitler');assert.match(await page.locator('#saved-location').textContent(),/Independent/);
+ await page.setViewportSize({width:950,height:700});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ assert.deepEqual(errors,[]);console.log('PASS text-first paste, audio attachment, SRT into current file, clear/undo, idempotent Cmd+S, New-window routing, Save As isolation, standalone transcription and single silence rendering.');
+ // An explicit Storyboard handoff must keep its external audio and shared document.
+ const handoff=await context.newPage();handoff.on('pageerror',e=>errors.push(String(e)));await handoff.addInitScript(()=>{window.SUBTITLER_OPEN={request:{requestId:'r1',projectId:'ss',workspace:{directory:'/project',projectId:'ss',projectName:'Test project',audioCandidates:[{path:'/project/old.wav',name:'old.wav',fingerprint:'old'}]},activeRecording:{path:'/outside/Test.wav',name:'Test.wav',fingerprint:'test-audio'}}};});await handoff.goto('http://127.0.0.1:'+server.address().port);await handoff.waitForFunction(()=>window.sharedWrites?.length);assert.equal(await handoff.evaluate(()=>window.transcribed.path),'/outside/Test.wav');await handoff.waitForFunction(()=>document.querySelector('#studio-connection')?.textContent.includes('Test project'),null,{timeout:5000});console.log('handoff status',await handoff.locator('#document-status').textContent());assert.equal(await handoff.locator('#studio-connection').isVisible(),true);assert.match(await handoff.locator('#saved-location').textContent(),/Subtitler/);assert.deepEqual(errors,[]);console.log('PASS explicit external-audio handoff, linked path and visible project connection.');
+
+ const savedProject=await handoff.evaluate(()=>JSON.parse(Object.values(window.files).find(s=>s&&s.includes('test-audio'))));
+ const missing=await context.newPage();await missing.addInitScript(p=>{p.source.path='/missing/moved.wav';p.filePath='/Desktop/Subtitler/Existing.subtitler';delete p.studioLink;window.files[p.filePath]=JSON.stringify(p);window.initialDocument={path:p.filePath};},savedProject);await missing.goto('http://127.0.0.1:'+server.address().port);await missing.locator('.cue').first().waitFor();assert.match(await missing.locator('#audio-error').innerText(),/missing/i);
+ const embedded=await context.newPage();await embedded.addInitScript(p=>{p.source.path='/missing/moved.wav';p.filePath='/Desktop/Subtitler/Embedded.subtitler';delete p.studioLink;window.files[p.filePath]=JSON.stringify(p);window.initialDocument={path:p.filePath};window.hasEmbedded=true;},savedProject);await embedded.goto('http://127.0.0.1:'+server.address().port);await embedded.locator('.cue').first().waitFor();assert.equal(await embedded.locator('#play-pause').isEnabled(),true);assert.doesNotMatch(await embedded.locator('#audio-error').innerText(),/missing/i);
+ console.log('PASS centered Match/final alignment, global word-update without recognition, reference Clear/Undo, waveform resize, full-height layout, folder move, missing and embedded-audio document opening.');
+ await page.screenshot({path:fileURLToPath(new URL('../../subtitler07-test.png',import.meta.url))});
+}finally{await browser.close();await new Promise(r=>server.close(r));}

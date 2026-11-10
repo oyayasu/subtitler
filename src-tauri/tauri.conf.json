@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Subtitler",
+  "version": "0.8.1",
+  "identifier": "local.filipe.whisperdesk",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self' tauri: http://tauri.localhost https://tauri.localhost; script-src 'self' tauri: http://tauri.localhost https://tauri.localhost; style-src 'self' tauri: http://tauri.localhost https://tauri.localhost 'unsafe-inline'; img-src 'self' tauri: http://tauri.localhost https://tauri.localhost data: blob:; media-src 'self' tauri: http://tauri.localhost https://tauri.localhost asset: http://asset.localhost blob: data:; connect-src 'self' tauri: http://tauri.localhost https://tauri.localhost ipc: http://ipc.localhost asset: http://asset.localhost blob: data:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-"
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "subtitler"
+        ],
+        "name": "Subtitler project",
+        "role": "Editor",
+        "rank": "Owner",
+        "mimeType": "application/x-subtitler"
+      }
+    ],
+    "resources": {
+      "icons/document.icns": "document.icns",
+      "icons/document.ico": "document.ico"
+    }
+  }
+}

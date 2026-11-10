@@ -1,0 +1,5 @@
+Subtitler 0.8.1
+
+Quit Subtitler and use the pasteable Terminal build command supplied with this release, or extract this ZIP and run bash BUILD_MACOS.sh. Rust 1.89 or newer is required. Existing identity, models, tools and transcripts are retained.
+
+See PATCH_TESTING.md for launch/reopen tests and WORKFLOW_MANUAL.md for workflow rules.

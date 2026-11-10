@@ -1,0 +1,23 @@
+{
+  "format": "whisperdesk-frontend-build-v1",
+  "target": "safari13.1",
+  "sources": {
+    "src/alignment.js": "294fb7abacc543cee94c5e77a969f1663e7ab15178d214a17f5bdcc556b2348b",
+    "src/app.js": "c890d1bd4c77128004b67cc96f260ac5752fca9a13c353c7a2a5b9318b4494ba",
+    "src/db.js": "fed9f2af759b16c98bba1276c9b18e532259c7eb2f20e379635e0bbc2ac38e21",
+    "src/document-model.js": "5cc5cddcd255c6244f5c42db701f974f1c218a155be2eabdeec982b302f22bb4",
+    "src/exports.js": "cd9c493f728b4adcb27d5a78ca41f69a689898baae3dee775b3108aceb95c79e",
+    "src/match-timing.js": "bcd4a81a8dbc952ddb0f46014e17b9d9485001a0c71f33e99687c6d445a9c4bd",
+    "src/model.js": "aa1ee99bce967af3e7a0f22600bfd0831dcbec2fe855a17619eacf6a7f35579a",
+    "src/recognition-quality.js": "03ecd5a97c7c04b9c522c5bee0d836e226f5101e6e933916cd987f17d8e599c3",
+    "src/recording-identity.js": "f3a5e611361e8d609eb72fe62f72f3744fa1515c24d4c2d253a2bf58bbad05c0",
+    "src/save-paths.js": "43c36bddab9f1fc64682bd7aa7c31a59edd5fe8b67399db1ef6b8569955a1517",
+    "src/studio-link.js": "efc0867142eb0f96913a82dad8aee8accd3306270e03677ccbf8e557c298a53d",
+    "src/timing-state.js": "05aa3d4b40c89d5725fff9d4f71d3f1ea3b8c8cf7ada60bc62827140fe0664d6",
+    "src/waveform.js": "4855c7778bef7f231ad1b05e1d0cfcce4732bd32f391d04e2b276b97c305c2a7",
+    "src/window-events.js": "8ad39bcbaf4703e20e1ed962fe99c41f98862c45f33bc28d4d49e2d15a93becf",
+    "src/workflow.js": "71370cf948a8fa61bbedcfb78552a56654d79dec466358d7a089d23fe26f4108",
+    "src/workspace-discovery.js": "e32251e56e1b9ffc8ec3ff11b4e8a7ef86d5f284912fe158425d00e49c089739"
+  },
+  "bundleSha256": "ac5c45c2db468f32a448bc5e5250220fc58fc41b9e1357bcbcbb7d995083e195"
+}

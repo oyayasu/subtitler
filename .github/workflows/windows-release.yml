@@ -14,6 +14,9 @@ jobs:
   windows:
     runs-on: windows-2022
     timeout-minutes: 65
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,7 +32,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Run checks
-        shell: pwsh
         run: |
           python scripts/check_project.py
           npm test
@@ -37,19 +39,22 @@ jobs:
         run: |
           npm install
           npm run build:frontend
-      - name: Build NSIS exe
-        shell: pwsh
+      - name: Build NSIS .exe
         run: |
           npm install --no-save '@tauri-apps/cli@^2'
           npx tauri build --config src-tauri/tauri.windows.conf.json --bundles nsis
-      - uses: actions/upload-artifact@v4
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
         with:
           name: Subtitler-Windows-x64
           path: src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v0.8.1-win10
+          target_commitish: main
+          name: Windows 10 x64 — v0.8.1
           files: src-tauri/target/release/bundle/nsis/*-setup.exe
           generate_release_notes: true

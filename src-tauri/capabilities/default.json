@@ -1,0 +1,11 @@
+{
+  "identifier": "default",
+  "description": "Local Subtitler window",
+  "windows": [
+    "main",
+    "document-*"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}
