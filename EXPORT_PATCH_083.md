@@ -20,9 +20,9 @@ The export dialog generated buttons with `data-export` attributes, but the share
 
 ## Local validation
 
-- 59 JavaScript model/export/chapter regression tests passed.
+- 61 JavaScript model/export/chapter regression tests passed.
 - 12 Python alignment/build-lock tests passed.
-- 30 compiled Rust storage, embedded-audio, process, recording-ownership and shared-export tests passed on Linux.
+- 31 compiled Rust storage, embedded-audio, chapter persistence, process, recording-ownership and shared-export tests passed on Linux.
 - DOM execution of the actual shipped bundle passed all seven formats for both standalone and Storyboard-linked documents, including Unicode, timestamps, cancellation, retry and duplicate-click protection.
 - Independent python-docx, openpyxl, CSV and JSON readers accepted the files produced by those UI actions.
 - Original pre-fix bundle reproduced the inert-button failure under the same DOM harness.

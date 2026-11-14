@@ -7,7 +7,8 @@ app="$package_dir/Subtitler.app"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == local.filipe.whisperdesk ]] || { echo 'This is not the expected Subtitler application.'; exit 1; }
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" == 0.8.3 ]] || { echo 'This is not Subtitler 0.8.3.'; exit 1; }
 /usr/bin/codesign --verify --deep --strict "$app"
-if pgrep -x whisper-desk >/dev/null; then echo 'Quit Subtitler first, then run this command again. Saved documents are not changed by installation.'; exit 1; fi
+binary="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+if pgrep -x "$binary" >/dev/null || pgrep -x Subtitler >/dev/null; then echo 'Quit Subtitler first, then run this command again. Saved documents are not changed by installation.'; exit 1; fi
 destination='/Applications/Subtitler.app'
 backups="$HOME/Library/Application Support/Subtitler/App backups"
 mkdir -p "$backups"
