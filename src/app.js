@@ -1254,7 +1254,7 @@ function showExport(target = project()) {
   if (target.id === project()?.id && !applyDrafts()) return;
   ui.exportProjectId = target.id;
   modal(
-    `<header><h2>Export transcript</h2><button data-action="close-modal" aria-label="Close export">×</button></header><p>Export your edited subtitles. Timing JSON retains word timings and original recognition for Storyboard Studio.</p>${(target.chapters || []).some(c=>c.start == null || c.needsReview)?'<p class="chapter-warning">Some chapters need a start time or review. Only placed chapters appear in DOCX and TXT; all chapter entries stay in your editable project.</p>':''}<div class="export-grid">${[
+    `<header><h2>Export transcript</h2><button data-action="close-modal" aria-label="Close export">×</button></header><p>Export your edited subtitles. Timing JSON retains word timings and original recognition for Storyboard Studio.</p>${placedChapters(target).length < (target.chapters || []).length?'<p class="chapter-warning">Some chapters need a valid start time or review. Only placed chapters appear in DOCX and TXT; all chapter entries stay in your editable project.</p>':''}<div class="export-grid">${[
       ["docx", "Word document"],
       ["txt", "Plain text"],
       ["srt", "Subtitles"],

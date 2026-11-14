@@ -19,7 +19,7 @@ export function installReferenceChapters(project, reference) {
   project.chapters = [
     ...previous.filter(c => c.origin !== 'reference'),
     ...imported.map(c => {
-      const old = previous.find(x => x.origin === 'reference' && x.referenceId === c.id);
+      const old = previous.find(x => x.origin === 'reference' && x.referenceId === c.id && x.title === c.title && x.level === (c.level || 1));
       return {
         id: old?.id || uid(), title: c.title, level: c.level || 1,
         start: old?.timeMode === 'manual' ? old.start : null,
@@ -73,7 +73,8 @@ export function invalidateChapterTimes(project) {
 }
 
 export function placedChapters(project) {
-  return (project.chapters || []).filter(c => Number.isFinite(c.start) && !c.needsReview)
+  const duration=project.source.duration || 0;
+  return (project.chapters || []).filter(c => Number.isFinite(c.start) && !c.needsReview && (!duration || c.start <= duration + .001))
     .slice().sort((a,b) => a.start - b.start || a.level - b.level);
 }
 

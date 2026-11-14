@@ -543,7 +543,7 @@
     project2.chapters = [
       ...previous.filter((c) => c.origin !== "reference"),
       ...imported.map((c) => {
-        const old = previous.find((x) => x.origin === "reference" && x.referenceId === c.id);
+        const old = previous.find((x) => x.origin === "reference" && x.referenceId === c.id && x.title === c.title && x.level === (c.level || 1));
         return {
           id: old?.id || uid(),
           title: c.title,
@@ -598,7 +598,8 @@
     }
   }
   function placedChapters(project2) {
-    return (project2.chapters || []).filter((c) => Number.isFinite(c.start) && !c.needsReview).slice().sort((a, b) => a.start - b.start || a.level - b.level);
+    const duration = project2.source.duration || 0;
+    return (project2.chapters || []).filter((c) => Number.isFinite(c.start) && !c.needsReview && (!duration || c.start <= duration + 1e-3)).slice().sort((a, b) => a.start - b.start || a.level - b.level);
   }
   function transcriptBlocks(project2) {
     const chapters = placedChapters(project2);
@@ -3469,7 +3470,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
     if (target.id === project()?.id && !applyDrafts()) return;
     ui.exportProjectId = target.id;
     modal(
-      `<header><h2>Export transcript</h2><button data-action="close-modal" aria-label="Close export">×</button></header><p>Export your edited subtitles. Timing JSON retains word timings and original recognition for Storyboard Studio.</p>${(target.chapters || []).some((c) => c.start == null || c.needsReview) ? '<p class="chapter-warning">Some chapters need a start time or review. Only placed chapters appear in DOCX and TXT; all chapter entries stay in your editable project.</p>' : ""}<div class="export-grid">${[
+      `<header><h2>Export transcript</h2><button data-action="close-modal" aria-label="Close export">×</button></header><p>Export your edited subtitles. Timing JSON retains word timings and original recognition for Storyboard Studio.</p>${placedChapters(target).length < (target.chapters || []).length ? '<p class="chapter-warning">Some chapters need a valid start time or review. Only placed chapters appear in DOCX and TXT; all chapter entries stay in your editable project.</p>' : ""}<div class="export-grid">${[
         ["docx", "Word document"],
         ["txt", "Plain text"],
         ["srt", "Subtitles"],

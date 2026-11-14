@@ -69,3 +69,13 @@ test('invalid chapter metadata rolls back rather than corrupting the open projec
   assert.throws(()=>validateProject({...p,chapters:[manual('b',-1)]}));
   assert.throws(()=>validateProject({...p,chapters:[manual('b',0,'Title',7)]}));
 });
+test('text-first markers beyond a subsequently attached recording stay recoverable but are not exported',()=>{
+  const p=sample();p.chapters=[manual('future',90,'Later scene')];
+  assert.equal(validateProject(p).chapters.length,1);assert.equal(placedChapters(p).length,0);
+  assert.doesNotMatch(textExport(p),/Later scene/);p.source.duration=100;assert.equal(placedChapters(p).length,1);
+});
+test('an explicitly reimported different heading does not inherit a manual timestamp by paragraph position',()=>{
+  const p=sample(),r=reference();installReferenceChapters(p,r);p.chapters[0].timeMode='manual';p.chapters[0].start=3;
+  r.chapters[0].title='An unrelated new chapter';installReferenceChapters(p,r);
+  assert.equal(p.chapters[0].start,null);assert.equal(p.chapters[0].title,'An unrelated new chapter');
+});
