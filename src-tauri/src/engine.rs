@@ -221,8 +221,8 @@ mod tests {
     #[test]
     fn process_success_failure_and_cancellation() {
         let c = AtomicBool::new(false);
-        assert!(run_process(Path::new("/bin/true"), &[], &c, Arc::new(|_| {}), false).is_ok());
-        assert!(run_process(Path::new("/bin/false"), &[], &c, Arc::new(|_| {}), false).is_err());
+        assert!(run_process(Path::new("/usr/bin/true"), &[], &c, Arc::new(|_| {}), false).is_ok());
+        assert!(run_process(Path::new("/usr/bin/false"), &[], &c, Arc::new(|_| {}), false).is_err());
         let c = Arc::new(AtomicBool::new(false));
         let other = c.clone();
         let handle = thread::spawn(move || {
