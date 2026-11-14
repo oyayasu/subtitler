@@ -3,7 +3,7 @@
   "target": "safari13.1",
   "sources": {
     "src/alignment.js": "294fb7abacc543cee94c5e77a969f1663e7ab15178d214a17f5bdcc556b2348b",
-    "src/app.js": "d3e9632057625505a8c3d09f122137d5fe030741bc002c395b9fb476115dbd2c",
+    "src/app.js": "1b8d94c679d4f68ca6e9b1cae0576f676fb3da95c0b67863b0ff5cf0ad84ab9b",
     "src/chapters.js": "1540dc495f9107fd955574e51a09b01a9052e44de23d46587e5e566487ecd787",
     "src/db.js": "fed9f2af759b16c98bba1276c9b18e532259c7eb2f20e379635e0bbc2ac38e21",
     "src/document-model.js": "5cc5cddcd255c6244f5c42db701f974f1c218a155be2eabdeec982b302f22bb4",
@@ -20,5 +20,5 @@
     "src/workflow.js": "48e14356f463409704895ceadfcc87cb9b5f491661791bdedcb2d0b0cbcace25",
     "src/workspace-discovery.js": "e32251e56e1b9ffc8ec3ff11b4e8a7ef86d5f284912fe158425d00e49c089739"
   },
-  "bundleSha256": "8f54b0a5a895dc5b8ec0e0dcfc515334c90a9926094bc260c5e203b14b0d9b99"
+  "bundleSha256": "ca2775650acfe854d79b46da21e5c1041a97a7cc46374347de5d91b1ced1cb4f"
 }

@@ -895,6 +895,7 @@ async function transcribe() {
       try { const matched=matchScript(check,reference,{correct:false});refreshChapterTimes(next,matched); }
       catch { refreshChapterTimes(next); }
     }
+    refreshChapterTimes(next);
 
     next.diagnostics = timingDiagnostics(next);
     if(project()?.id!==original.id)throw Error('The active project changed; this result was not applied.');

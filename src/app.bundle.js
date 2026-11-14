@@ -3137,6 +3137,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
           refreshChapterTimes(next);
         }
       }
+      refreshChapterTimes(next);
       next.diagnostics = timingDiagnostics(next);
       if (project()?.id !== original.id) throw Error("The active project changed; this result was not applied.");
       next.filePath = original.filePath;
