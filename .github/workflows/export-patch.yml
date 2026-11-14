@@ -1,0 +1,106 @@
+name: Subtitler Mac export and chapters patch
+
+on:
+  push:
+    branches: [fix/export-buttons-0.8.3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check frontend and all model tests
+        run: |
+          npm ci
+          npm run build:frontend
+          python scripts/check_project.py
+          npm test
+      - name: Install browser test runtime
+        run: |
+          npm install --no-save playwright jsdom@26 fake-indexeddb
+          npx playwright install --with-deps chromium
+      - name: Click every export format and test failure and cancellation
+        env:
+          TEST_OUTPUT: test-output
+        run: node tests/exports-ui.mjs
+      - name: Check the same shipped bundle through DOM events
+        run: |
+          node tests/exports-dom.mjs
+          TEST_LINKED=1 node tests/exports-dom.mjs
+      - name: Check existing document workflows
+        run: node tests/documents07-ui.mjs
+      - name: Retain generated exports and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Subtitler-0.8.3-export-test-files
+          path: test-output/
+          if-no-files-found: warn
+
+  native:
+    needs: browser
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+            name: macOS-Apple-Silicon
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+      - name: Check native storage and document regressions
+        run: |
+          python scripts/test_native_files.py
+          python scripts/test_native_documents.py
+          python scripts/test_instance_lock.py
+      - name: Prepare frontend and native builder
+        run: |
+          npm ci
+          npm run build:frontend
+          python scripts/check_project.py
+          npm install --no-save '@tauri-apps/cli@^2'
+      - name: Build macOS app and disk image
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bash scripts/generate_macos_icon.sh
+          npx tauri build --ci --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json --bundles app,dmg
+          mkdir -p release
+          package='package/Subtitler-0.8.3-macOS-Apple-Silicon'
+          mkdir -p "$package"
+          ditto src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Subtitler.app "$package/Subtitler.app"
+          cp INSTALL_MACOS.sh EXPORT_PATCH_083.md "$package/"
+          ditto -c -k --sequesterRsrc --keepParent "$package" release/Subtitler-0.8.3-macOS-Apple-Silicon.zip
+          cp src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg release/
+          codesign --verify --deep --strict src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Subtitler.app
+      - name: Retain installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: Subtitler-0.8.3-${{ matrix.name }}
+          path: release/*
+          if-no-files-found: error

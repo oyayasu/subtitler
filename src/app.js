@@ -1,4 +1,5 @@
 import {listenDocument} from './window-events.js';
+import {chapterSeconds,installReferenceChapters,refreshChapterTimes,invalidateChapterTimes,placedChapters} from './chapters.js';
 import {rebaseSavePath,isUnderSaveFolder} from './save-paths.js';
 import {spokenKey,referenceKey,referenceOf,canMatch,needsTiming,aligned as alignedTiming} from './timing-state.js';
 import {retimeImported} from './match-timing.js';
@@ -202,7 +203,7 @@ async function closeProject(){
 function commit(label, fn) {
   if (!history || ui.busy) return;
   try {
-    history.change(label, fn);
+    history.change(label, p => { fn(p); refreshChapterTimes(p); });
     ui.selected = ui.selected.filter((id) =>
       project().cues.some((c) => c.id === id),
     );
@@ -239,9 +240,9 @@ function setup() {
     prefs.theme === "light" ? "light" : "dark";
   $("#app").innerHTML =
     `<main class="workspace"><header class="topbar"><details class="file-menu"><summary>File</summary><div><button data-action="new-project">New</button><button data-action="open-project">Open…</button><button data-action="recent-projects">Open Recent…</button><hr><button data-action="import-audio">Import Audio…</button><button data-action="import-reference">Import Reference text…</button><button data-action="import-subtitles">Import Subtitles…</button><button data-action="project-folder">Open Storyboard project…</button><hr><button data-action="save-project">Save</button><button data-action="save-as">Save As…</button><button data-action="reveal-transcript">Show saved project</button><button data-action="move-transcript-folder">Move Subtitler folder…</button><hr><button data-action="export">Export…</button><button data-action="close-project">Close</button></div></details><span class="brand">SUBTITLER</span><div class="project-title"><input id="project-name" aria-label="Transcript name" maxlength="200"><span id="saved" role="status" hidden></span></div><div class="top-actions"><button class="secondary" data-action="settings" aria-label="Settings">⚙</button><button class="secondary" data-action="save-project">Save project</button><button class="primary" data-action="export">Export ↗</button></div></header><div id="document-status"><button id="saved-location" data-action="reveal-transcript"></button><strong id="studio-connection" hidden></strong></div>
- <section class="player"><audio id="audio" preload="metadata"></audio><div id="audio-placeholder"><button class="secondary" data-action="import-audio">＋ Import audio</button><small>or drop an audio file here</small></div><div class="waveform-wrap" id="waveform-shell"><div class="waveform-top"><button data-action="play-pause" id="play-pause" aria-label="Play">▶</button><span id="player-time">00:00:00.000 / 00:00:00.000</span><button class="audio-name" id="audio-name" data-action="audio-location"></button><span class="waveform-spacer"></span><button class="secondary" data-action="relink" hidden>Attach audio…</button></div><div class="waveform-resize-target"><canvas id="waveform" height="88" role="slider" tabindex="0" aria-label="Audio playhead" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas><div class="panel-resizer waveform-resizer" role="separator" tabindex="0" aria-label="Resize waveform height" aria-orientation="horizontal"></div></div><div class="waveform-bottom"><span id="waveform-status" role="status"></span><span id="audio-error" role="status"></span><label>Speed<select id="playback-rate" aria-label="Playback speed"><option value=".5">0.5×</option><option value=".75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><label class="volume-control">Volume<input type="range" id="volume" min="0" max="1" step=".05" value="1" aria-label="Volume"></label></div></div>
+ <section class="player"><audio id="audio" preload="metadata"></audio><div id="audio-placeholder"><button class="secondary" data-action="import-audio">＋ Import audio</button><small>or drop an audio file here</small></div><div class="waveform-wrap" id="waveform-shell"><div class="waveform-top"><button data-action="play-pause" id="play-pause" aria-label="Play">▶</button><span id="player-time">00:00:00.000 / 00:00:00.000</span><button class="audio-name" id="audio-name" data-action="audio-location"></button><span class="waveform-spacer"></span><button class="secondary" data-action="relink" hidden>Attach audio…</button></div><div class="waveform-resize-target"><div id="chapter-markers" aria-label="Chapter markers"></div><canvas id="waveform" height="88" role="slider" tabindex="0" aria-label="Audio playhead" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas><div class="panel-resizer waveform-resizer" role="separator" tabindex="0" aria-label="Resize waveform height" aria-orientation="horizontal"></div></div><div class="waveform-bottom"><span id="waveform-status" role="status"></span><span id="audio-error" role="status"></span><label>Speed<select id="playback-rate" aria-label="Playback speed"><option value=".5">0.5×</option><option value=".75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><label class="volume-control">Volume<input type="range" id="volume" min="0" max="1" step=".05" value="1" aria-label="Volume"></label></div></div>
  <div id="job-status" hidden><div class="job-message"><span id="job-message"></span><button data-action="cancel">Cancel</button></div><progress id="job-progress"></progress></div><div class="transcribe-bar"><label>Language<select id="language"><option value="auto">Auto detect</option><option value="en">English</option><option value="pt">Português</option><option value="es">Español</option><option value="ja">日本語</option></select></label><label class="model-label">Whisper model<select id="model"></select></label><button class="secondary" data-action="transcription-options">Options</button><button class="primary" data-action="transcribe">Transcribe</button><button class="secondary" data-action="improve-timing" hidden>Update word timings</button><button class="secondary" data-action="timing-report" hidden>Timing report</button></div><div id="project-sync-status" role="status" hidden></div></section>
- <section class="editor"><div class="editor-toolbar"><button class="scissors-button" data-action="scissors" title="Split before a word" aria-label="Scissors" aria-pressed="false"><img src="assets/scissors-icon.png" alt=""></button><span class="toolbar-rule"></span><button class="secondary" data-action="reference-text">Reference text</button><button class="secondary" data-action="clear-transcript">Clear transcript</button><input id="search" type="search" placeholder="Find…" aria-label="Find in transcript"></div><div class="editor-columns"><section class="transcript-panel"><div id="match-reference-prompt" hidden><button class="primary" data-action="match-timings">Match timings</button><small>Match your imported reference text to this recording.</small></div><div id="transcript-list" tabindex="-1"></div></section><div class="panel-resizer inspector-resizer" role="separator" tabindex="0" aria-label="Resize subtitle editor" aria-orientation="vertical"></div><aside class="inspector" id="inspector" aria-label="Subtitle editor"></aside></div></section></main>`;
+ <section class="editor"><div class="editor-toolbar"><button class="scissors-button" data-action="scissors" title="Split before a word" aria-label="Scissors" aria-pressed="false"><img src="assets/scissors-icon.png" alt=""></button><span class="toolbar-rule"></span><button class="secondary" data-action="reference-text">Reference text</button><button class="secondary" data-action="chapters">Chapters</button><button class="secondary" data-action="clear-transcript">Clear transcript</button><input id="search" type="search" placeholder="Find…" aria-label="Find in transcript"></div><div class="editor-columns"><section class="transcript-panel"><div id="match-reference-prompt" hidden><button class="primary" data-action="match-timings">Match timings</button><small>Match your imported reference text to this recording.</small></div><div id="transcript-list" tabindex="-1"></div></section><div class="panel-resizer inspector-resizer" role="separator" tabindex="0" aria-label="Resize subtitle editor" aria-orientation="vertical"></div><aside class="inspector" id="inspector" aria-label="Subtitle editor"></aside></div></section></main>`;
   wave.mount();
   installPanelResizing();
   const audio = $("#audio");
@@ -308,6 +309,13 @@ function renderHeader() {
   const title=project()?.name||'Untitled';if(native()&&ui.windowTitle!==title){ui.windowTitle=title;void invoke('document_title',{title}).catch(()=>{});}
 
   const p = project();
+  const chapterButton = $('[data-action="chapters"]');
+  if (chapterButton) { chapterButton.disabled = !p || ui.busy; chapterButton.textContent = 'Chapters' + (p?.chapters?.length ? ` (${p.chapters.length})` : ''); }
+  const chapterMarkers = $('#chapter-markers');
+  if (chapterMarkers) {
+    const duration = p?.source.duration || 0;
+    chapterMarkers.innerHTML = duration ? placedChapters(p).map(c => `<button class="chapter-flag" data-action="chapter-seek" data-start="${c.start}" style="left:clamp(8px,${Math.min(100,c.start / duration * 100)}%,calc(100% - 8px))" aria-label="Go to ${esc(c.title)} at ${clock(c.start)}"><span class="flag-shape" aria-hidden="true"></span><span class="chapter-tooltip">${esc(c.title)} · ${clock(c.start)}</span></button>`).join('') : '';
+  }
   if (document.activeElement !== $("#project-name"))
     $("#project-name").value = p?.name || "Untitled";
   $("#project-name").disabled = !p || ui.busy;
@@ -620,7 +628,7 @@ async function audioInput(input, relink = false) {
   let p=old||newProject();
   const changed=!!p.source.name&&!sameRecording(p.source,recordingInfo||{name,size:input.size,modified:input.lastModified});
   if(changed&&p.studioLink){await save();await studio.flush();p=standalone(p,distinctName(name.replace(/\.[^.]+$/,''),projects));delete p.source.embeddedPath;await openProject(p);}
-  if(changed){delete p.source.embeddedPath;delete p.matchedReferenceKey;p.timingsNeedMatch=true;delete p.source.relativePath;delete p.scriptReference;p.pauses=[];}
+  if(changed){delete p.source.embeddedPath;delete p.matchedReferenceKey;p.timingsNeedMatch=true;delete p.source.relativePath;delete p.scriptReference;p.pauses=[];invalidateChapterTimes(p);}
   if(!p.source.name&&!p.cues.length&&!p.referenceInput)p.name=distinctName(name.replace(/\.[^.]+$/,''),projects.filter(x=>!x.studioLink));
   if(!old)await openProject(p);
   const priorDuration = p.source.duration || 0,
@@ -702,9 +710,7 @@ async function readInput(input) {
       throw Error("The transcript is not valid JSON.");
     }
     if (raw.format === "subtitler-script-v1") {
-      project().referenceInput = parseScript(raw);
-      project().useScript = true;
-      save();
+      commit('Import reference text',p=>{p.referenceInput=parseScript(raw);p.useScript=true;adoptReferenceChapters(p,p.referenceInput);});
       toast("Reference text selected.");
       return;
     }
@@ -763,6 +769,7 @@ function applyDrafts() {
   try {
     history.change("Edit subtitles", (p) => {
       for (const [id, text] of entries) editCue(p, id, text);
+      refreshChapterTimes(p);
     });
     ui.drafts = {};
     project().drafts = {};
@@ -826,6 +833,7 @@ async function transcribe() {
       previewPath: original.source.previewPath,
     });
     next.subtitleOptions = options;
+    next.chapters = clone(original.chapters || []);
     if (original.studioLink) next.studioLink = clone(original.studioLink);
     if (original.availableScript)
       next.availableScript = clone(original.availableScript);
@@ -882,6 +890,11 @@ async function transcribe() {
     }
     if(!prefs.whisperxPython)next.workflowWarnings=[...(next.workflowWarnings||[]),'Word timing improvement is not set up. Recognition timings were kept. Configure WhisperX and use Retry word timing.'];
     attachPauses(next, reply.pauses || [], options.pauseSeconds);
+    if (reference && next.chapters.some(c => c.timeMode === 'matched')) {
+      const check = clone(next);
+      try { const matched=matchScript(check,reference,{correct:false});refreshChapterTimes(next,matched); }
+      catch { refreshChapterTimes(next); }
+    }
 
     next.diagnostics = timingDiagnostics(next);
     if(project()?.id!==original.id)throw Error('The active project changed; this result was not applied.');
@@ -918,6 +931,7 @@ function modal(html) {
 function closeModal() {
   $("#dialogs").innerHTML = "";
   delete ui.exportProjectId;
+  delete ui.chapterDrafts;
 }
 function showSettings() {
   modal(
@@ -1011,7 +1025,7 @@ async function importScript(input) {
         ? await invoke("read_transcript", { path: input })
         : await input.text(),
     );
-  commit('Import reference text',p=>{p.referenceInput=parsed;p.useScript=true;});
+  commit('Import reference text',p=>{p.referenceInput=parsed;p.useScript=true;adoptReferenceChapters(p,parsed);});
   toast("Reference text selected.");
   if ($("#opt-maxWords")) showOptions();
 }
@@ -1169,7 +1183,7 @@ async function runAlignment(probe, automatic = false) {
       throw Error("The transcript changed during alignment. Run it again.");
     let summary;
     history.change("Improve word timing", (p) => {
-      summary = applyAlignment(p, reply, { replaceManual });alignedTiming(p,summary.unresolved);
+      summary = applyAlignment(p, reply, { replaceManual });alignedTiming(p,summary.unresolved);refreshChapterTimes(p);
       delete p.timingsNeedMatch;delete p.timingsCleared;
     });
     await save();
@@ -1191,11 +1205,56 @@ async function runAlignment(probe, automatic = false) {
     refreshDocumentHeader();
   }
 }
+function adoptReferenceChapters(p,reference) {
+  installReferenceChapters(p,reference);
+  if (p.cues.length && p.chapters.some(c=>c.timeMode==='matched')) {
+    try { const check=clone(p);const matched=matchScript(check,reference,{correct:false});refreshChapterTimes(p,matched); }
+    catch { refreshChapterTimes(p); }
+  }
+}
+function captureChapterDrafts() {
+  $('#chapter-list')?.querySelectorAll('[data-chapter-row]').forEach((row,index) => {
+    const draft=ui.chapterDrafts[index];
+    draft.title=row.querySelector('[data-chapter-title]').value;
+    draft.timeText=row.querySelector('[data-chapter-time]').value;
+    draft.level=Number(row.querySelector('[data-chapter-level]').value);
+  });
+}
+function chapterDraftValues() {
+  captureChapterDrafts();
+  const duration=project().source.duration || 0;
+  const result=ui.chapterDrafts.map(draft => {
+    const chapter=clone(draft), start=chapterSeconds(chapter.timeText);
+    delete chapter.timeText;
+    chapter.title=chapter.title.trim();
+    if (!chapter.title) throw Error('Give every chapter a name, or remove its row.');
+    if (start != null && duration && start > duration + .001) throw Error(`“${chapter.title}” starts after the recording ends.`);
+    if (start !== chapter.start || chapter.needsReview) { chapter.timeMode='manual';chapter.anchorWordId=null; }
+    chapter.start=start;delete chapter.needsReview;
+    return chapter;
+  });
+  validateProject({...project(),chapters:result});
+  return result;
+}
+function showChapters(resume = false) {
+  if (!resume) ui.chapterDrafts=clone(project().chapters || []).map(c=>({...c,timeText:c.start == null ? '' : clock(c.start)}));
+  modal(`<header><h2>Chapters</h2><button data-action="close-modal" aria-label="Close chapters">×</button></header><p>Optional chapter markers. Enter a name and start time. Your recording stays unchanged.</p><div id="chapter-list">${ui.chapterDrafts.map((c,i)=>`<section class="chapter-row" data-chapter-row="${i}"><label class="field-label">Name<input data-chapter-title maxlength="200" aria-label="Chapter ${i+1} name" value="${esc(c.title)}"></label><label class="field-label">Start time<input data-chapter-time inputmode="decimal" aria-label="Chapter ${i+1} start time" placeholder="Not placed" value="${esc(c.timeText)}"></label><label class="field-label">Heading<select data-chapter-level aria-label="Chapter ${i+1} heading">${Array.from({length:6},(_,n)=>`<option value="${n+1}" ${c.level===n+1?'selected':''}>${n===0?'Chapter':n===1?'Subchapter':'Heading '+(n+1)}</option>`).join('')}</select></label><button class="chapter-remove" data-action="chapter-remove" data-index="${i}" aria-label="Remove chapter ${i+1}">×</button><small>${c.needsReview?'Recording changed — review this time.':c.timeText?(c.timeMode==='matched'?'Matched to speech':'Manual timestamp'):'Not placed — match the reference or enter a time.'}</small></section>`).join('') || '<p class="small">No chapters yet. Use ＋ to add one, or import reference text with Word headings.</p>'}</div><p id="chapter-error" role="status" aria-live="polite"></p><footer><button class="secondary" data-action="chapter-add" aria-label="Add chapter">＋</button>${referenceOf(project())?.chapters?.some(c=>c.isHeading)&&project().cues.length?'<button class="secondary" data-action="chapter-match">Match imported headings</button>':''}<button class="primary" data-action="save-chapters">Save chapters</button></footer>`);
+}
+function chapterError(fn) { try { fn(); } catch(error) { $('#chapter-error').textContent=error.message || String(error); } }
+function matchChapterDrafts() {
+  const p=clone(project());p.chapters=chapterDraftValues();
+  const matched=matchScript(p,referenceOf(p),{correct:false});
+  if (matched.matched < Math.max(1,referenceOf(p).words.length*.65)) throw Error('Not enough reference text matched the transcript. Match timings first or enter chapter times manually.');
+  ui.chapterDrafts=p.chapters.map(c=>({...c,timeText:c.start == null?'':clock(c.start)}));
+  showChapters(true);
+}
 function showExport(target = project()) {
+  if (ui.exporting) return;
+  if (!target) return;
   if (target.id === project()?.id && !applyDrafts()) return;
   ui.exportProjectId = target.id;
   modal(
-    `<header><h2>Export transcript</h2><button data-action="close-modal" aria-label="Close export">×</button></header><p>Export your edited subtitles. Timing JSON retains word timings and original recognition for Storyboard Studio.</p><div class="export-grid">${[
+    `<header><h2>Export transcript</h2><button data-action="close-modal" aria-label="Close export">×</button></header><p>Export your edited subtitles. Timing JSON retains word timings and original recognition for Storyboard Studio.</p>${(target.chapters || []).some(c=>c.start == null || c.needsReview)?'<p class="chapter-warning">Some chapters need a start time or review. Only placed chapters appear in DOCX and TXT; all chapter entries stay in your editable project.</p>':''}<div class="export-grid">${[
       ["docx", "Word document"],
       ["txt", "Plain text"],
       ["srt", "Subtitles"],
@@ -1210,15 +1269,33 @@ function showExport(target = project()) {
       )
       .join(
         "",
-      )}</div><label class="check-label"><input id="export-timestamps" type="checkbox"> Include timestamps in DOCX / TXT</label><p class="small">Use Save project to keep an editable backup. Audio is linked separately.</p>`,
+      )}</div><label class="check-label"><input id="export-timestamps" type="checkbox"> Include timestamps in DOCX / TXT</label><p id="export-status" class="small" role="status" aria-live="polite"></p><p class="small">The editable .subtitler export is an independent copy, including its available audio. Other formats contain text and timing.</p>`,
   );
 }
 async function download(format) {
-  const target = projects.find((p) => p.id === ui.exportProjectId) || project();
-  if (target.id === project()?.id && !applyDrafts()) return;
-  if(format==='subtitler'&&native()){const path=await invoke('choose_document_save',{name:target.name});if(!path)return;const copy=standalone(target);copy.filePath=path;await invoke('write_document',{path,data:JSON.stringify(copy)});toast('Subtitler project exported with its available audio.');closeModal();return;}
+  if (ui.exporting) return;
+  const targetId = ui.exportProjectId || project()?.id;
+  if (targetId === project()?.id && !applyDrafts()) return;
+  const current = project()?.id === targetId ? project() : projects.find(p => p.id === targetId);
+  if (!current) throw Error('Open a transcript before exporting.');
+  // Export an immutable snapshot of the latest applied edits, not a stale list entry.
+  const target = clone(current);
+  const timestamps = !!$("#export-timestamps")?.checked;
+  const status = $("#export-status");
+  const buttons = [...document.querySelectorAll('[data-export], #export-timestamps')];
+  ui.exporting = true;
+  buttons.forEach(button => { button.disabled = true; });
+  if (status) status.textContent = 'Preparing export…';
+  try {
+  if(format==='subtitler'&&native()){
+    const path=await invoke('choose_document_save',{name:target.name});
+    if(!path){if(status)status.textContent='Export cancelled. Choose a format to try again.';return;}
+    const copy=standalone(target);copy.filePath=path;
+    await invoke('write_document',{path,data:JSON.stringify(copy)});
+    toast('Subtitler project exported with its available audio.');closeModal();return;
+  }
   const output = await makeExport(target, format, {
-      timestamps: !!$("#export-timestamps")?.checked,
+      timestamps,
     }),
     blob = new Blob([output.data], { type: output.mime });
   if (native()) {
@@ -1237,8 +1314,13 @@ async function download(format) {
         data,
       });
       toast("Saved in your chosen project folder.");
-    } else if (await invoke("save_export", { filename: output.name, data }))
+    } else {
+      if (!await invoke("save_export", { filename: output.name, data })) {
+        if (status) status.textContent = 'Export cancelled. Choose a format to try again.';
+        return;
+      }
       toast("Export saved.");
+    }
   } else {
     const url = URL.createObjectURL(blob),
       a = document.createElement("a");
@@ -1248,6 +1330,13 @@ async function download(format) {
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   }
   closeModal();
+  } catch (error) {
+    if (status) status.textContent = 'Could not export: ' + (error.message || String(error));
+    else report(error);
+  } finally {
+    ui.exporting = false;
+    buttons.forEach(button => { button.disabled = false; });
+  }
 }
 function splitAt(cueId, wordId) {
   if (ui.busy) return;
@@ -1397,9 +1486,12 @@ function showRecent(){
   const paths=new Map();for(const p of projects.slice().sort((a,b)=>String(b.lastOpenedAt||b.updatedAt).localeCompare(String(a.lastOpenedAt||a.updatedAt)))){const path=p.filePath||p.studioLink?.projectFile||p.privateFile||p.openedFile;if(path&&!paths.has(path))paths.set(path,p);}
   modal(`<header><h2>Open Recent</h2><button data-action="close-modal">×</button></header><div class="recent-projects">${[...paths].slice(0,30).map(([path,p])=>`<button data-recent-path="${esc(path)}">${esc(p.name)}<small>${esc(path)}</small></button>`).join('')||'No recent projects.'}</div>`);
 }
+function referenceText(ref) {
+  return ref?.chapters?.some(c=>typeof c.text==='string') ? ref.chapters.map(c=>c.text || '').join('\n\n') : ref?.words?.map(w=>w.text).join(' ') || '';
+}
 function referencePanel(){
  const ref=project().useScript===false?null:project().referenceInput||project().availableScript;
- const text=ref?.chapters?.map(c=>c.text||'').join('\n\n')||ref?.words?.map(w=>w.text).join(' ')||'';
+ const text=referenceText(ref);
  modal(`<header><h2>Reference text</h2><button data-action="close-modal">×</button></header><textarea id="reference-input" placeholder="Paste reference text here…" aria-label="Reference text">${esc(text)}</textarea><footer><button class="secondary" data-action="import-reference">Import text…</button><button class="secondary" data-action="clear-reference">Clear</button><button class="primary" data-action="apply-reference">Save reference</button></footer>`);
 }
 async function importReference(){
@@ -1421,7 +1513,13 @@ const actions = {
   'import-reference':importReference,
   'import-subtitles':async()=>{if(native()){const file=await invoke('pick_file',{kind:'subtitles'});if(file)await readInput(file);}else $('#transcript-file').click();},
   'reference-text':referencePanel,
-  'apply-reference':()=>{const text=$('#reference-input').value;commit('Change reference text',p=>{if(text.trim()){p.referenceInput=parseScript(text);p.useScript=true;}else{delete p.referenceInput;p.useScript=false;}});closeModal();},
+  'chapters':()=>showChapters(),
+  'chapter-add':()=>{captureChapterDrafts();const time=$('#audio').currentTime || 0;ui.chapterDrafts.push({id:uid(),title:'',level:1,start:time,timeText:clock(time),timeMode:'manual',origin:'manual'});showChapters(true);$('#chapter-list [data-chapter-row]:last-child input')?.focus();},
+  'chapter-remove':button=>{captureChapterDrafts();ui.chapterDrafts.splice(Number(button.dataset.index),1);showChapters(true);},
+  'chapter-match':()=>chapterError(matchChapterDrafts),
+  'save-chapters':()=>chapterError(()=>{const chapters=chapterDraftValues();commit('Edit chapters',p=>{p.chapters=chapters;});closeModal();wave.draw();}),
+  'chapter-seek':button=>seek(Number(button.dataset.start)),
+  'apply-reference':()=>{const text=$('#reference-input').value;if(text===referenceText(referenceOf(project()))){closeModal();return;}commit('Change reference text',p=>{if(text.trim()){p.referenceInput=parseScript(text);p.useScript=true;}else{delete p.referenceInput;p.useScript=false;}});closeModal();},
   'clear-reference':()=>{commit('Clear reference text',p=>{delete p.referenceInput;delete p.scriptReference;p.useScript=false;});referencePanel();},
   'clear-transcript':()=>{if(!project().cues.length)return;modal(`<header><h2>Clear transcript?</h2></header><p>Remove subtitles and timings from this project. Undo restores them. Audio and reference text stay.</p><footer><button data-action="close-modal">Cancel</button><button class="danger" data-action="confirm-clear-transcript">Clear</button></footer>`);},
   'confirm-clear-transcript':()=>{commit('Clear transcript',p=>{p.cues=[];p.sourceWords=[];p.pauses=[];p.timingsCleared=true;delete p.scriptReference;delete p.recognition;delete p.diagnostics;});closeModal();},
@@ -1484,6 +1582,7 @@ const actions = {
     readOptions();
     project().referenceInput = clone(project().availableScript);
     project().useScript = true;
+    adoptReferenceChapters(project(),project().referenceInput);
     save();
     showOptions();
   },
@@ -1626,6 +1725,11 @@ const actions = {
 };
 document.addEventListener("click", async (e) => {
   try {
+    const exportButton = e.target.closest("[data-export]");
+    if (exportButton) {
+      if (!exportButton.disabled) await download(exportButton.dataset.export);
+      return;
+    }
     const tab = e.target.closest("[data-settings-tab]");
     if (tab) {
       document

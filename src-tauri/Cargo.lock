@@ -4414,7 +4414,7 @@ dependencies = [
 
 [[package]]
 name = "whisper-desk"
-version = "0.8.1"
+version = "0.8.3"
 dependencies = [
  "base64 0.22.1",
  "rfd",

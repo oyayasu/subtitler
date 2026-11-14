@@ -1,4 +1,5 @@
 import { clone, uid, tokenize, cueText } from "./model.js";
+import { refreshChapterTimes } from './chapters.js';
 
 export const subtitleDefaults = Object.freeze({
   minWords: 1,
@@ -126,7 +127,7 @@ export function parseScript(raw) {
       const json = JSON.parse(raw);
       if (json?.format === "subtitler-script-v1") return parseScript(json);
     } catch {}
-    return scriptChapters([{ id: null, title: "Script", text: raw }]);
+    return scriptChapters([{ id: null, title: "Script", text: raw, isHeading: false }]);
   }
   if (
     raw?.format !== "subtitler-script-v1" ||
@@ -144,9 +145,12 @@ export function parseScript(raw) {
 }
 function scriptChapters(chapters) {
   const words = [],
-    markers = [];
+    markers = [],
+    sectionsOut = [];
   let total = 0;
-  for (const ch of chapters) {
+  for (const [chapterIndex,ch] of chapters.entries()) {
+    const wordStart = words.length;
+    const chapterId=ch.id || (ch.isHeading !== false && ch.title ? 'reference-section-'+chapterIndex : null);
     if (typeof ch.text !== "string")
       throw Error("The script contains invalid chapter text.");
     total += ch.text.length;
@@ -191,7 +195,7 @@ function scriptChapters(chapters) {
             ...w,
             from: w.from + offset,
             to: w.to + offset,
-            chapterId: ch.id || null,
+            chapterId,
           });
         offset += part.length;
       }
@@ -200,28 +204,27 @@ function scriptChapters(chapters) {
       const before =
         words
           .map((w, i) => ({ w, i }))
-          .filter((x) => x.w.chapterId === (ch.id || null) && x.w.to <= p.from)
+          .filter((x) => x.w.chapterId === chapterId && x.w.to <= p.from)
           .at(-1)?.i ?? null;
       const after = words.findIndex(
-        (w) => w.chapterId === (ch.id || null) && w.from >= p.to,
+        (w) => w.chapterId === chapterId && w.from >= p.to,
       );
       markers.push({
         id: p.id || uid(),
         label: p.label || "Pause",
-        chapterId: ch.id || null,
+        chapterId,
         before,
         after: after < 0 ? null : after,
       });
     }
+    sectionsOut.push({id:chapterId,title:String(ch.title || '').slice(0,200),number:ch.number || '',
+      text:ch.text,level:Number.isInteger(ch.level) ? Math.max(1,Math.min(6,ch.level)) : 1,
+      isHeading:ch.isHeading !== false && !!ch.title,wordStart,wordEnd:words.length});
   }
   return {
     words,
     markers,
-    chapters: chapters.map((c) => ({
-      id: c.id || null,
-      title: c.title || "",
-      number: c.number || "",
-    })),
+    chapters: sectionsOut,
   };
 }
 export async function docxScript(data) {
@@ -236,15 +239,53 @@ export async function docxScript(data) {
   );
   if (xml.querySelector("parsererror"))
     throw Error("The DOCX text could not be read.");
-  return parseScript(
-    [...xml.getElementsByTagNameNS("*", "p")]
-      .map((p) =>
-        [...p.getElementsByTagNameNS("*", "t")]
-          .map((t) => t.textContent)
-          .join(""),
-      )
-      .join("\n"),
-  );
+  const attr = (el,name) => el?.getAttributeNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main',name) || el?.getAttribute('w:'+name);
+  const child = (el,name) => [...(el?.children || [])].find(c => c.localName === name);
+  const styles = new Map();
+  if (zip.file('word/styles.xml')) {
+    if (zip.file('word/styles.xml')._data?.uncompressedSize > 2000000) throw Error('The DOCX heading styles are too large to import safely.');
+    const document = new DOMParser().parseFromString(await zip.file('word/styles.xml').async('string'),'application/xml');
+    for (const style of document.getElementsByTagNameNS('*','style')) {
+      const outline = attr(child(child(style,'pPr'),'outlineLvl'),'val');
+      styles.set(attr(style,'styleId'),{base:attr(child(style,'basedOn'),'val'),outline:outline == null ? null : Number(outline),name:attr(child(style,'name'),'val') || ''});
+    }
+  }
+  const headingLevel = (styleId,seen = new Set()) => {
+    if (!styleId || seen.has(styleId)) return null;
+    seen.add(styleId);
+    const style = styles.get(styleId);
+    if (style?.outline != null && style.outline >= 0 && style.outline < 6) return style.outline + 1;
+    const named = [styleId,style?.name || ''].map(s => s.replace(/\s/g,'')).find(s => /^heading[1-6]$/i.test(s));
+    if (named) return +named.at(-1);
+    return headingLevel(style?.base,seen);
+  };
+  const sections = [];
+  const paragraphText = p => {
+    let text='';
+    const walk = element => { for (const node of element.children) {
+      if (node.localName === 't') text += node.textContent;
+      else if (node.localName === 'tab') text += '\t';
+      else if (['br','cr'].includes(node.localName)) text += '\n';
+      else if (!['pPr','rPr'].includes(node.localName)) walk(node);
+    }};
+    walk(p);return text;
+  };
+  let current = {id:'docx-intro',title:'',text:'',isHeading:false};
+  const paragraphs = [...xml.getElementsByTagNameNS('*','p')];
+  for (let i=0;i<paragraphs.length;i++) {
+    const p=paragraphs[i],pr=child(p,'pPr'),styleId=attr(child(pr,'pStyle'),'val');
+    const direct=attr(child(pr,'outlineLvl'),'val');
+    const level=direct != null ? (+direct >= 0 && +direct < 6 ? +direct + 1 : null) : headingLevel(styleId);
+    const text=paragraphText(p);
+    if (level && text.trim()) {
+      if (current.text || current.isHeading) sections.push(current);
+      current={id:'docx-heading-'+i,title:text.trim(),level,isHeading:true,text:''};
+    } else if (!/^title$/i.test(styleId || '') && !/^title$/i.test(styles.get(styleId)?.name || '')) {
+      current.text += (current.text ? '\n' : '') + text;
+    }
+  }
+  if (current.text || current.isHeading) sections.push(current);
+  return parseScript({format:'subtitler-script-v1',schemaVersion:1,chapters:sections});
 }
 function distance(a, b) {
   const row = Array.from({ length: b.length + 1 }, (_, i) => i);
@@ -376,6 +417,7 @@ export function matchScript(project, script, { correct = true } = {}) {
     matched: mapping.size,
     referenceWords: reference.length,
   };
+  refreshChapterTimes(project, project.scriptReference);
   return project.scriptReference;
 }
 export function attachPauses(project, intervals, threshold = 0.6) {

@@ -2,7 +2,7 @@ from pathlib import Path
 import json,re,hashlib
 root=Path(__file__).resolve().parent.parent
 config=json.loads((root/'src-tauri/tauri.conf.json').read_text())
-assert config['version']=='0.8.1'
+assert config['version']=='0.8.3'
 assert config['identifier']=='local.filipe.whisperdesk'
 assert config['productName']=='Subtitler'
 assert config['app']['withGlobalTauri']
@@ -11,7 +11,7 @@ assert config['build']['frontendDist']=='../src'
 for f in ['src/index.html','src/app.js','src/model.js','src/exports.js','src/db.js','src/styles.css','src/waveform.js','src/alignment.js','src/workflow.js','src/studio-link.js','src/assets/scissors-white.svg','src-tauri/src/project_files.rs','python/align_words.py','scripts/install_whisperx_macos.sh','src/assets/VT323-Regular.ttf','src/assets/OFL.txt','src/assets/scissors-icon.png','src/assets/scissors-cursor.svg','src/vendor/jszip.min.js','src/vendor/JSZip-LICENSE.md','src-tauri/icons/icon.png','src-tauri/src/main.rs','src-tauri/src/lib.rs','src-tauri/src/engine.rs','src-tauri/Cargo.lock','ROADMAP.md','TIMING_FORMAT.md']:
  assert (root/f).is_file(),f
 lock=(root/'src-tauri/Cargo.lock').read_text()
-assert 'name = "whisper-desk"\nversion = "0.8.1"' in lock
+assert 'name = "whisper-desk"\nversion = "0.8.3"' in lock
 assert not list(root.rglob('*.command'))
 assert not list(root.glob('*.deb'))
 for f in (root/'src').glob('*.js'):

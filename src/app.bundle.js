@@ -5,42 +5,6 @@
     return api.event.listen(event, handler, label ? { target: { kind: "WebviewWindow", label } } : void 0);
   }
 
-  // src/save-paths.js
-  function normalizedSavePath(value) {
-    let p = String(value || "").replace(/\\/g, "/");
-    if (p.startsWith("//?/UNC/")) p = "//" + p.slice(8);
-    else if (p.startsWith("//?/")) p = p.slice(4);
-    return p.replace(/\/+$/, "");
-  }
-  var windows = (p) => /^[a-z]:\//i.test(p) || p.startsWith("//");
-  function savePathIdentity(value) {
-    const p = normalizedSavePath(value);
-    return windows(p) ? p.toLowerCase() : p;
-  }
-  function isUnderSaveFolder(value, folder) {
-    const p = savePathIdentity(value), root = savePathIdentity(folder);
-    return !!root && (p === root || p.startsWith(root + "/"));
-  }
-  function rebaseSavePath(value, oldFolder, newFolder) {
-    if (!value || !isUnderSaveFolder(value, oldFolder)) return value;
-    return normalizedSavePath(newFolder) + normalizedSavePath(value).slice(normalizedSavePath(oldFolder).length);
-  }
-
-  // src/timing-state.js
-  var referenceOf = (p) => p?.useScript === false ? null : p?.referenceInput || p?.availableScript;
-  var spokenKey = (p) => JSON.stringify((p?.cues || []).flatMap((c) => c.words).map((w) => w.text).join(" ").normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu) || []);
-  var referenceKey = (p) => JSON.stringify([p?.source?.fingerprint || p?.source?.path, referenceOf(p)?.words?.map((w) => w.text) || []]);
-  var canMatch = (p) => !!(p?.source?.name && referenceOf(p)?.words?.length && p.matchedReferenceKey !== referenceKey(p));
-  var needsTiming = (p) => !!p?.cues?.length && (!!p.timingAlignmentPending || !!p.timingsNeedMatch || !!p.wordTimingTextKey && p.wordTimingTextKey !== spokenKey(p));
-  function aligned(p, unresolved = 0) {
-    p.wordTimingTextKey = spokenKey(p);
-    p.timingAlignmentPending = unresolved > 0;
-    if (!unresolved) {
-      delete p.timingsNeedMatch;
-      if (referenceOf(p)) p.matchedReferenceKey = referenceKey(p);
-    }
-  }
-
   // src/model.js
   var uid = () => {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -152,6 +116,7 @@
       model: "",
       sourceWords: [],
       cues: [],
+      chapters: [],
       recognition: null
     };
   }
@@ -427,6 +392,14 @@
     p.source || (p.source = {});
     p.id = typeof p.id === "string" ? p.id : uid();
     p.name = String(p.name || "Transcript").slice(0, 200);
+    if (p.chapters !== void 0 && (!Array.isArray(p.chapters) || p.chapters.length > 1e4))
+      throw Error("Invalid chapter list.");
+    p.chapters || (p.chapters = []);
+    const chapterIds = /* @__PURE__ */ new Set();
+    for (const chapter of p.chapters) {
+      if (!chapter || typeof chapter.id !== "string" || !chapter.id || chapterIds.has(chapter.id) || typeof chapter.title !== "string" || !chapter.title.trim() || chapter.title.length > 200 || !Number.isInteger(chapter.level) || chapter.level < 1 || chapter.level > 6 || chapter.start !== null && (!finite(chapter.start) || chapter.start < 0 || chapter.start > 172800) || !["manual", "matched"].includes(chapter.timeMode)) throw Error("Invalid chapter name, time or identity.");
+      chapterIds.add(chapter.id);
+    }
     for (const c of p.cues) {
       if (typeof c.id !== "string" || seen.has(c.id) || !finite(c.start) || !finite(c.end) || c.start < 0 || c.end <= c.start || c.end > 172800 || !Array.isArray(c.words) || !c.words.length)
         throw Error("Invalid subtitle timing or identity.");
@@ -525,6 +498,7 @@
         )
       ],
       pauses: clone(p.pauses || []),
+      chapters: clone(p.chapters || []),
       speakers: clone(p.speakerNames || {}),
       source: {
         name: p.source.name,
@@ -548,6 +522,154 @@
       originalWords: clone(p.sourceWords),
       notes: "Automatic word times remain approximate. WhisperX provenance is retained when used. Unresolved, edited or imported words may keep earlier or interpolated timing."
     };
+  }
+
+  // src/chapters.js
+  function chapterSeconds(value) {
+    if (value == null || String(value).trim() === "") return null;
+    if (typeof value === "number") {
+      if (!Number.isFinite(value) || value < 0 || value > 172800) throw Error("Use a chapter time between 0 and 48 hours.");
+      return value;
+    }
+    const text = String(value).trim();
+    if (/^\d+(?:[.,]\d{1,3})?$/.test(text)) return chapterSeconds(Number(text.replace(",", ".")));
+    const hit = text.match(/^(?:(\d+):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?$/);
+    if (!hit || +hit[2] > 59 || +hit[3] > 59) throw Error("Use seconds, MM:SS or HH:MM:SS.mmm for chapter times.");
+    return chapterSeconds(+(hit[1] || 0) * 3600 + +hit[2] * 60 + +hit[3] + +(hit[4] || "").padEnd(3, "0") / 1e3);
+  }
+  function installReferenceChapters(project2, reference) {
+    const previous = project2.chapters || [];
+    const imported = (reference?.chapters || []).filter((c) => c.isHeading && c.title);
+    project2.chapters = [
+      ...previous.filter((c) => c.origin !== "reference"),
+      ...imported.map((c) => {
+        const old = previous.find((x) => x.origin === "reference" && x.referenceId === c.id);
+        return {
+          id: old?.id || uid(),
+          title: c.title,
+          level: c.level || 1,
+          start: old?.timeMode === "manual" ? old.start : null,
+          timeMode: old?.timeMode === "manual" ? "manual" : "matched",
+          origin: "reference",
+          referenceId: c.id,
+          anchorWordId: null,
+          ...old?.needsReview ? { needsReview: true } : {}
+        };
+      })
+    ];
+    return project2.chapters;
+  }
+  function refreshChapterTimes(project2, matchedReference = null) {
+    const words = project2.cues.flatMap((c) => c.words);
+    const byId = new Map(words.map((w) => [w.id, w]));
+    const mapping = matchedReference ? new Map(matchedReference.mapping) : null;
+    const sections = matchedReference?.chapters || [];
+    const reliable = !matchedReference || matchedReference.matched >= Math.max(1, matchedReference.words.length * 0.65);
+    for (const chapter of project2.chapters || []) {
+      if (chapter.timeMode !== "matched") continue;
+      let anchor = byId.get(chapter.anchorWordId);
+      if (mapping && chapter.origin === "reference") {
+        const at = sections.findIndex((c) => c.id === chapter.referenceId);
+        anchor = null;
+        if (at >= 0 && reliable) {
+          const section = sections[at];
+          const following = sections.slice(at + 1).find((c) => c.isHeading && (c.level || 1) <= (section.level || 1));
+          const end = following?.wordStart ?? matchedReference.words.length;
+          for (let i = section.wordStart; i < end; i++) {
+            const hit = words[mapping.get(i)];
+            if (hit) {
+              anchor = hit;
+              break;
+            }
+          }
+        }
+      }
+      chapter.anchorWordId = anchor?.id || null;
+      chapter.start = anchor?.start ?? null;
+      if (anchor) delete chapter.needsReview;
+    }
+    return project2.chapters;
+  }
+  function invalidateChapterTimes(project2) {
+    for (const chapter of project2.chapters || []) {
+      chapter.anchorWordId = null;
+      if (chapter.timeMode === "matched") chapter.start = null;
+      else if (chapter.start != null) chapter.needsReview = true;
+    }
+  }
+  function placedChapters(project2) {
+    return (project2.chapters || []).filter((c) => Number.isFinite(c.start) && !c.needsReview).slice().sort((a, b) => a.start - b.start || a.level - b.level);
+  }
+  function transcriptBlocks(project2) {
+    const chapters = placedChapters(project2);
+    if (!chapters.length) return project2.cues.map((c) => ({ kind: "text", text: cueText(c), start: c.start, end: c.end }));
+    const blocks = [];
+    let at = 0;
+    const headings = (time) => {
+      while (at < chapters.length && chapters[at].start <= time + 1e-6) {
+        blocks.push({ kind: "heading", ...clone(chapters[at++]) });
+      }
+    };
+    for (const cue of project2.cues) {
+      let batch = [], first = 0;
+      const flush = () => {
+        if (!batch.length) return;
+        blocks.push({
+          kind: "text",
+          text: cueText({ words: batch }),
+          start: first === 0 ? cue.start : batch[0].start,
+          end: first + batch.length === cue.words.length ? cue.end : batch.at(-1).end
+        });
+        batch = [];
+      };
+      cue.words.forEach((word, index) => {
+        if (at < chapters.length && chapters[at].start <= word.start + 1e-6) {
+          flush();
+          headings(word.start);
+        }
+        if (!batch.length) first = index;
+        batch.push(word);
+      });
+      flush();
+    }
+    headings(Infinity);
+    return blocks;
+  }
+
+  // src/save-paths.js
+  function normalizedSavePath(value) {
+    let p = String(value || "").replace(/\\/g, "/");
+    if (p.startsWith("//?/UNC/")) p = "//" + p.slice(8);
+    else if (p.startsWith("//?/")) p = p.slice(4);
+    return p.replace(/\/+$/, "");
+  }
+  var windows = (p) => /^[a-z]:\//i.test(p) || p.startsWith("//");
+  function savePathIdentity(value) {
+    const p = normalizedSavePath(value);
+    return windows(p) ? p.toLowerCase() : p;
+  }
+  function isUnderSaveFolder(value, folder) {
+    const p = savePathIdentity(value), root = savePathIdentity(folder);
+    return !!root && (p === root || p.startsWith(root + "/"));
+  }
+  function rebaseSavePath(value, oldFolder, newFolder) {
+    if (!value || !isUnderSaveFolder(value, oldFolder)) return value;
+    return normalizedSavePath(newFolder) + normalizedSavePath(value).slice(normalizedSavePath(oldFolder).length);
+  }
+
+  // src/timing-state.js
+  var referenceOf = (p) => p?.useScript === false ? null : p?.referenceInput || p?.availableScript;
+  var spokenKey = (p) => JSON.stringify((p?.cues || []).flatMap((c) => c.words).map((w) => w.text).join(" ").normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu) || []);
+  var referenceKey = (p) => JSON.stringify([p?.source?.fingerprint || p?.source?.path, referenceOf(p)?.words?.map((w) => w.text) || []]);
+  var canMatch = (p) => !!(p?.source?.name && referenceOf(p)?.words?.length && p.matchedReferenceKey !== referenceKey(p));
+  var needsTiming = (p) => !!p?.cues?.length && (!!p.timingAlignmentPending || !!p.timingsNeedMatch || !!p.wordTimingTextKey && p.wordTimingTextKey !== spokenKey(p));
+  function aligned(p, unresolved = 0) {
+    p.wordTimingTextKey = spokenKey(p);
+    p.timingAlignmentPending = unresolved > 0;
+    if (!unresolved) {
+      delete p.timingsNeedMatch;
+      if (referenceOf(p)) p.matchedReferenceKey = referenceKey(p);
+    }
   }
 
   // src/workflow.js
@@ -649,7 +771,7 @@
         if (json?.format === "subtitler-script-v1") return parseScript(json);
       } catch {
       }
-      return scriptChapters([{ id: null, title: "Script", text: raw }]);
+      return scriptChapters([{ id: null, title: "Script", text: raw, isHeading: false }]);
     }
     if (raw?.format !== "subtitler-script-v1" || raw.schemaVersion !== 1 || !Array.isArray(raw.chapters) || raw.chapters.length > 1e4)
       throw Error(
@@ -661,9 +783,11 @@
     return out;
   }
   function scriptChapters(chapters) {
-    const words = [], markers = [];
+    const words = [], markers = [], sectionsOut = [];
     let total = 0;
-    for (const ch of chapters) {
+    for (const [chapterIndex, ch] of chapters.entries()) {
+      const wordStart = words.length;
+      const chapterId = ch.id || (ch.isHeading !== false && ch.title ? "reference-section-" + chapterIndex : null);
       if (typeof ch.text !== "string")
         throw Error("The script contains invalid chapter text.");
       total += ch.text.length;
@@ -694,33 +818,39 @@
               ...w,
               from: w.from + offset,
               to: w.to + offset,
-              chapterId: ch.id || null
+              chapterId
             });
           offset += part.length;
         }
       }
       for (const p of pauses) {
-        const before = words.map((w, i) => ({ w, i })).filter((x) => x.w.chapterId === (ch.id || null) && x.w.to <= p.from).at(-1)?.i ?? null;
+        const before = words.map((w, i) => ({ w, i })).filter((x) => x.w.chapterId === chapterId && x.w.to <= p.from).at(-1)?.i ?? null;
         const after = words.findIndex(
-          (w) => w.chapterId === (ch.id || null) && w.from >= p.to
+          (w) => w.chapterId === chapterId && w.from >= p.to
         );
         markers.push({
           id: p.id || uid(),
           label: p.label || "Pause",
-          chapterId: ch.id || null,
+          chapterId,
           before,
           after: after < 0 ? null : after
         });
       }
+      sectionsOut.push({
+        id: chapterId,
+        title: String(ch.title || "").slice(0, 200),
+        number: ch.number || "",
+        text: ch.text,
+        level: Number.isInteger(ch.level) ? Math.max(1, Math.min(6, ch.level)) : 1,
+        isHeading: ch.isHeading !== false && !!ch.title,
+        wordStart,
+        wordEnd: words.length
+      });
     }
     return {
       words,
       markers,
-      chapters: chapters.map((c) => ({
-        id: c.id || null,
-        title: c.title || "",
-        number: c.number || ""
-      }))
+      chapters: sectionsOut
     };
   }
   async function docxScript(data) {
@@ -735,11 +865,56 @@
     );
     if (xml2.querySelector("parsererror"))
       throw Error("The DOCX text could not be read.");
-    return parseScript(
-      [...xml2.getElementsByTagNameNS("*", "p")].map(
-        (p) => [...p.getElementsByTagNameNS("*", "t")].map((t) => t.textContent).join("")
-      ).join("\n")
-    );
+    const attr = (el, name) => el?.getAttributeNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", name) || el?.getAttribute("w:" + name);
+    const child = (el, name) => [...el?.children || []].find((c) => c.localName === name);
+    const styles = /* @__PURE__ */ new Map();
+    if (zip.file("word/styles.xml")) {
+      if (zip.file("word/styles.xml")._data?.uncompressedSize > 2e6) throw Error("The DOCX heading styles are too large to import safely.");
+      const document2 = new DOMParser().parseFromString(await zip.file("word/styles.xml").async("string"), "application/xml");
+      for (const style of document2.getElementsByTagNameNS("*", "style")) {
+        const outline = attr(child(child(style, "pPr"), "outlineLvl"), "val");
+        styles.set(attr(style, "styleId"), { base: attr(child(style, "basedOn"), "val"), outline: outline == null ? null : Number(outline), name: attr(child(style, "name"), "val") || "" });
+      }
+    }
+    const headingLevel = (styleId, seen = /* @__PURE__ */ new Set()) => {
+      if (!styleId || seen.has(styleId)) return null;
+      seen.add(styleId);
+      const style = styles.get(styleId);
+      if (style?.outline != null && style.outline >= 0 && style.outline < 6) return style.outline + 1;
+      const named = [styleId, style?.name || ""].map((s) => s.replace(/\s/g, "")).find((s) => /^heading[1-6]$/i.test(s));
+      if (named) return +named.at(-1);
+      return headingLevel(style?.base, seen);
+    };
+    const sections = [];
+    const paragraphText = (p) => {
+      let text = "";
+      const walk = (element) => {
+        for (const node of element.children) {
+          if (node.localName === "t") text += node.textContent;
+          else if (node.localName === "tab") text += "	";
+          else if (["br", "cr"].includes(node.localName)) text += "\n";
+          else if (!["pPr", "rPr"].includes(node.localName)) walk(node);
+        }
+      };
+      walk(p);
+      return text;
+    };
+    let current = { id: "docx-intro", title: "", text: "", isHeading: false };
+    const paragraphs = [...xml2.getElementsByTagNameNS("*", "p")];
+    for (let i = 0; i < paragraphs.length; i++) {
+      const p = paragraphs[i], pr = child(p, "pPr"), styleId = attr(child(pr, "pStyle"), "val");
+      const direct = attr(child(pr, "outlineLvl"), "val");
+      const level = direct != null ? +direct >= 0 && +direct < 6 ? +direct + 1 : null : headingLevel(styleId);
+      const text = paragraphText(p);
+      if (level && text.trim()) {
+        if (current.text || current.isHeading) sections.push(current);
+        current = { id: "docx-heading-" + i, title: text.trim(), level, isHeading: true, text: "" };
+      } else if (!/^title$/i.test(styleId || "") && !/^title$/i.test(styles.get(styleId)?.name || "")) {
+        current.text += (current.text ? "\n" : "") + text;
+      }
+    }
+    if (current.text || current.isHeading) sections.push(current);
+    return parseScript({ format: "subtitler-script-v1", schemaVersion: 1, chapters: sections });
   }
   function distance(a, b) {
     const row = Array.from({ length: b.length + 1 }, (_, i) => i);
@@ -845,6 +1020,7 @@
       matched: mapping.size,
       referenceWords: reference.length
     };
+    refreshChapterTimes(project2, project2.scriptReference);
     return project2.scriptReference;
   }
   function attachPauses(project2, intervals, threshold = 0.6) {
@@ -1301,9 +1477,7 @@
   var declaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
   var safeName = (s) => String(s || "Transcript").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 120).trim() || "Transcript";
   function textExport(p, timestamps = false) {
-    return p.cues.map(
-      (c) => (timestamps ? `[${clock(c.start)} → ${clock(c.end)}] ` : "") + cueText(c)
-    ).join("\n\n") + "\n";
+    return transcriptBlocks(p).map((c) => c.kind === "heading" ? c.title : (timestamps ? `[${clock(c.start)} → ${clock(c.end)}] ` : "") + c.text).join("\n\n") + "\n";
   }
   function wrapCaption(text, limit = 42) {
     const lines = [];
@@ -1389,14 +1563,14 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       "word/_rels/document.xml.rels",
       relationships([["rId1", "styles", "styles.xml"]])
     );
-    const paragraph = (text, heading = false) => `<w:p><w:pPr>${heading ? '<w:pStyle w:val="Heading1"/>' : ""}<w:spacing w:after="180"/></w:pPr><w:r><w:t xml:space="preserve">${xml(text).replaceAll("\n", '</w:t><w:br/><w:t xml:space="preserve">')}</w:t></w:r></w:p>`;
+    const paragraph = (text, style = null) => `<w:p><w:pPr>${style ? `<w:pStyle w:val="${style}"/>` : ""}<w:spacing w:after="180"/></w:pPr><w:r><w:t xml:space="preserve">${xml(text).replaceAll("\n", '</w:t><w:br/><w:t xml:space="preserve">')}</w:t></w:r></w:p>`;
     z.file(
       "word/document.xml",
-      declaration + `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraph(p.name, true)}${p.cues.map((c) => paragraph((timestamps ? `[${clock(c.start)} → ${clock(c.end)}] ` : "") + cueText(c))).join("")}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`
+      declaration + `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraph(p.name, "Title")}${transcriptBlocks(p).map((c) => c.kind === "heading" ? paragraph(c.title, "Heading" + c.level) : paragraph((timestamps ? `[${clock(c.start)} → ${clock(c.end)}] ` : "") + c.text)).join("")}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`
     );
     z.file(
       "word/styles.xml",
-      declaration + '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Cambria" w:hAnsi="Cambria" w:eastAsia="Yu Mincho"/><w:sz w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:sz w:val="36"/></w:rPr></w:style></w:styles>'
+      declaration + '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Cambria" w:hAnsi="Cambria" w:eastAsia="Yu Mincho"/><w:sz w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/></w:pPr><w:rPr><w:b/><w:sz w:val="40"/></w:rPr></w:style>' + Array.from({ length: 6 }, (_, i) => `<w:style w:type="paragraph" w:styleId="Heading${i + 1}"><w:name w:val="heading ${i + 1}"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="${i}"/></w:pPr><w:rPr><w:b/><w:sz w:val="${Math.max(24, 36 - i * 2)}"/></w:rPr></w:style>`).join("") + "</w:styles>"
     );
     return z.generateAsync({ type: "uint8array", compression: "DEFLATE" });
   }
@@ -2157,7 +2331,10 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
   function commit(label, fn) {
     if (!history || ui.busy) return;
     try {
-      history.change(label, fn);
+      history.change(label, (p) => {
+        fn(p);
+        refreshChapterTimes(p);
+      });
       ui.selected = ui.selected.filter(
         (id) => project().cues.some((c) => c.id === id)
       );
@@ -2271,9 +2448,9 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
   function setup() {
     document.documentElement.dataset.theme = prefs.theme === "light" ? "light" : "dark";
     $("#app").innerHTML = `<main class="workspace"><header class="topbar"><details class="file-menu"><summary>File</summary><div><button data-action="new-project">New</button><button data-action="open-project">Open…</button><button data-action="recent-projects">Open Recent…</button><hr><button data-action="import-audio">Import Audio…</button><button data-action="import-reference">Import Reference text…</button><button data-action="import-subtitles">Import Subtitles…</button><button data-action="project-folder">Open Storyboard project…</button><hr><button data-action="save-project">Save</button><button data-action="save-as">Save As…</button><button data-action="reveal-transcript">Show saved project</button><button data-action="move-transcript-folder">Move Subtitler folder…</button><hr><button data-action="export">Export…</button><button data-action="close-project">Close</button></div></details><span class="brand">SUBTITLER</span><div class="project-title"><input id="project-name" aria-label="Transcript name" maxlength="200"><span id="saved" role="status" hidden></span></div><div class="top-actions"><button class="secondary" data-action="settings" aria-label="Settings">⚙</button><button class="secondary" data-action="save-project">Save project</button><button class="primary" data-action="export">Export ↗</button></div></header><div id="document-status"><button id="saved-location" data-action="reveal-transcript"></button><strong id="studio-connection" hidden></strong></div>
- <section class="player"><audio id="audio" preload="metadata"></audio><div id="audio-placeholder"><button class="secondary" data-action="import-audio">＋ Import audio</button><small>or drop an audio file here</small></div><div class="waveform-wrap" id="waveform-shell"><div class="waveform-top"><button data-action="play-pause" id="play-pause" aria-label="Play">▶</button><span id="player-time">00:00:00.000 / 00:00:00.000</span><button class="audio-name" id="audio-name" data-action="audio-location"></button><span class="waveform-spacer"></span><button class="secondary" data-action="relink" hidden>Attach audio…</button></div><div class="waveform-resize-target"><canvas id="waveform" height="88" role="slider" tabindex="0" aria-label="Audio playhead" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas><div class="panel-resizer waveform-resizer" role="separator" tabindex="0" aria-label="Resize waveform height" aria-orientation="horizontal"></div></div><div class="waveform-bottom"><span id="waveform-status" role="status"></span><span id="audio-error" role="status"></span><label>Speed<select id="playback-rate" aria-label="Playback speed"><option value=".5">0.5×</option><option value=".75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><label class="volume-control">Volume<input type="range" id="volume" min="0" max="1" step=".05" value="1" aria-label="Volume"></label></div></div>
+ <section class="player"><audio id="audio" preload="metadata"></audio><div id="audio-placeholder"><button class="secondary" data-action="import-audio">＋ Import audio</button><small>or drop an audio file here</small></div><div class="waveform-wrap" id="waveform-shell"><div class="waveform-top"><button data-action="play-pause" id="play-pause" aria-label="Play">▶</button><span id="player-time">00:00:00.000 / 00:00:00.000</span><button class="audio-name" id="audio-name" data-action="audio-location"></button><span class="waveform-spacer"></span><button class="secondary" data-action="relink" hidden>Attach audio…</button></div><div class="waveform-resize-target"><div id="chapter-markers" aria-label="Chapter markers"></div><canvas id="waveform" height="88" role="slider" tabindex="0" aria-label="Audio playhead" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas><div class="panel-resizer waveform-resizer" role="separator" tabindex="0" aria-label="Resize waveform height" aria-orientation="horizontal"></div></div><div class="waveform-bottom"><span id="waveform-status" role="status"></span><span id="audio-error" role="status"></span><label>Speed<select id="playback-rate" aria-label="Playback speed"><option value=".5">0.5×</option><option value=".75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><label class="volume-control">Volume<input type="range" id="volume" min="0" max="1" step=".05" value="1" aria-label="Volume"></label></div></div>
  <div id="job-status" hidden><div class="job-message"><span id="job-message"></span><button data-action="cancel">Cancel</button></div><progress id="job-progress"></progress></div><div class="transcribe-bar"><label>Language<select id="language"><option value="auto">Auto detect</option><option value="en">English</option><option value="pt">Português</option><option value="es">Español</option><option value="ja">日本語</option></select></label><label class="model-label">Whisper model<select id="model"></select></label><button class="secondary" data-action="transcription-options">Options</button><button class="primary" data-action="transcribe">Transcribe</button><button class="secondary" data-action="improve-timing" hidden>Update word timings</button><button class="secondary" data-action="timing-report" hidden>Timing report</button></div><div id="project-sync-status" role="status" hidden></div></section>
- <section class="editor"><div class="editor-toolbar"><button class="scissors-button" data-action="scissors" title="Split before a word" aria-label="Scissors" aria-pressed="false"><img src="assets/scissors-icon.png" alt=""></button><span class="toolbar-rule"></span><button class="secondary" data-action="reference-text">Reference text</button><button class="secondary" data-action="clear-transcript">Clear transcript</button><input id="search" type="search" placeholder="Find…" aria-label="Find in transcript"></div><div class="editor-columns"><section class="transcript-panel"><div id="match-reference-prompt" hidden><button class="primary" data-action="match-timings">Match timings</button><small>Match your imported reference text to this recording.</small></div><div id="transcript-list" tabindex="-1"></div></section><div class="panel-resizer inspector-resizer" role="separator" tabindex="0" aria-label="Resize subtitle editor" aria-orientation="vertical"></div><aside class="inspector" id="inspector" aria-label="Subtitle editor"></aside></div></section></main>`;
+ <section class="editor"><div class="editor-toolbar"><button class="scissors-button" data-action="scissors" title="Split before a word" aria-label="Scissors" aria-pressed="false"><img src="assets/scissors-icon.png" alt=""></button><span class="toolbar-rule"></span><button class="secondary" data-action="reference-text">Reference text</button><button class="secondary" data-action="chapters">Chapters</button><button class="secondary" data-action="clear-transcript">Clear transcript</button><input id="search" type="search" placeholder="Find…" aria-label="Find in transcript"></div><div class="editor-columns"><section class="transcript-panel"><div id="match-reference-prompt" hidden><button class="primary" data-action="match-timings">Match timings</button><small>Match your imported reference text to this recording.</small></div><div id="transcript-list" tabindex="-1"></div></section><div class="panel-resizer inspector-resizer" role="separator" tabindex="0" aria-label="Resize subtitle editor" aria-orientation="vertical"></div><aside class="inspector" id="inspector" aria-label="Subtitle editor"></aside></div></section></main>`;
     wave.mount();
     installPanelResizing();
     const audio = $("#audio");
@@ -2360,6 +2537,16 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       });
     }
     const p = project();
+    const chapterButton = $('[data-action="chapters"]');
+    if (chapterButton) {
+      chapterButton.disabled = !p || ui.busy;
+      chapterButton.textContent = "Chapters" + (p?.chapters?.length ? ` (${p.chapters.length})` : "");
+    }
+    const chapterMarkers = $("#chapter-markers");
+    if (chapterMarkers) {
+      const duration = p?.source.duration || 0;
+      chapterMarkers.innerHTML = duration ? placedChapters(p).map((c) => `<button class="chapter-flag" data-action="chapter-seek" data-start="${c.start}" style="left:clamp(8px,${Math.min(100, c.start / duration * 100)}%,calc(100% - 8px))" aria-label="Go to ${esc(c.title)} at ${clock(c.start)}"><span class="flag-shape" aria-hidden="true"></span><span class="chapter-tooltip">${esc(c.title)} · ${clock(c.start)}</span></button>`).join("") : "";
+    }
     if (document.activeElement !== $("#project-name"))
       $("#project-name").value = p?.name || "Untitled";
     $("#project-name").disabled = !p || ui.busy;
@@ -2664,6 +2851,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       delete p.source.relativePath;
       delete p.scriptReference;
       p.pauses = [];
+      invalidateChapterTimes(p);
     }
     if (!p.source.name && !p.cues.length && !p.referenceInput) p.name = distinctName(name.replace(/\.[^.]+$/, ""), projects.filter((x) => !x.studioLink));
     if (!old) await openProject(p);
@@ -2736,9 +2924,11 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
         throw Error("The transcript is not valid JSON.");
       }
       if (raw.format === "subtitler-script-v1") {
-        project().referenceInput = parseScript(raw);
-        project().useScript = true;
-        save();
+        commit("Import reference text", (p2) => {
+          p2.referenceInput = parseScript(raw);
+          p2.useScript = true;
+          adoptReferenceChapters(p2, p2.referenceInput);
+        });
         toast("Reference text selected.");
         return;
       }
@@ -2809,6 +2999,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
     try {
       history.change("Edit subtitles", (p) => {
         for (const [id, text] of entries) editCue(p, id, text);
+        refreshChapterTimes(p);
       });
       ui.drafts = {};
       project().drafts = {};
@@ -2877,6 +3068,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
         previewPath: original.source.previewPath
       });
       next.subtitleOptions = options;
+      next.chapters = clone(original.chapters || []);
       if (original.studioLink) next.studioLink = clone(original.studioLink);
       if (original.availableScript)
         next.availableScript = clone(original.availableScript);
@@ -2935,6 +3127,15 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       }
       if (!prefs.whisperxPython) next.workflowWarnings = [...next.workflowWarnings || [], "Word timing improvement is not set up. Recognition timings were kept. Configure WhisperX and use Retry word timing."];
       attachPauses(next, reply.pauses || [], options.pauseSeconds);
+      if (reference && next.chapters.some((c) => c.timeMode === "matched")) {
+        const check = clone(next);
+        try {
+          const matched = matchScript(check, reference, { correct: false });
+          refreshChapterTimes(next, matched);
+        } catch {
+          refreshChapterTimes(next);
+        }
+      }
       next.diagnostics = timingDiagnostics(next);
       if (project()?.id !== original.id) throw Error("The active project changed; this result was not applied.");
       next.filePath = original.filePath;
@@ -2968,6 +3169,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
   function closeModal() {
     $("#dialogs").innerHTML = "";
     delete ui.exportProjectId;
+    delete ui.chapterDrafts;
   }
   function showSettings() {
     modal(
@@ -3052,6 +3254,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
     commit("Import reference text", (p) => {
       p.referenceInput = parsed;
       p.useScript = true;
+      adoptReferenceChapters(p, parsed);
     });
     toast("Reference text selected.");
     if ($("#opt-maxWords")) showOptions();
@@ -3178,6 +3381,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       history.change("Improve word timing", (p) => {
         summary = applyAlignment(p, reply, { replaceManual });
         aligned(p, summary.unresolved);
+        refreshChapterTimes(p);
         delete p.timingsNeedMatch;
         delete p.timingsCleared;
       });
@@ -3200,11 +3404,72 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       refreshDocumentHeader();
     }
   }
+  function adoptReferenceChapters(p, reference) {
+    installReferenceChapters(p, reference);
+    if (p.cues.length && p.chapters.some((c) => c.timeMode === "matched")) {
+      try {
+        const check = clone(p);
+        const matched = matchScript(check, reference, { correct: false });
+        refreshChapterTimes(p, matched);
+      } catch {
+        refreshChapterTimes(p);
+      }
+    }
+  }
+  function captureChapterDrafts() {
+    $("#chapter-list")?.querySelectorAll("[data-chapter-row]").forEach((row, index) => {
+      const draft = ui.chapterDrafts[index];
+      draft.title = row.querySelector("[data-chapter-title]").value;
+      draft.timeText = row.querySelector("[data-chapter-time]").value;
+      draft.level = Number(row.querySelector("[data-chapter-level]").value);
+    });
+  }
+  function chapterDraftValues() {
+    captureChapterDrafts();
+    const duration = project().source.duration || 0;
+    const result = ui.chapterDrafts.map((draft) => {
+      const chapter = clone(draft), start2 = chapterSeconds(chapter.timeText);
+      delete chapter.timeText;
+      chapter.title = chapter.title.trim();
+      if (!chapter.title) throw Error("Give every chapter a name, or remove its row.");
+      if (start2 != null && duration && start2 > duration + 1e-3) throw Error(`“${chapter.title}” starts after the recording ends.`);
+      if (start2 !== chapter.start || chapter.needsReview) {
+        chapter.timeMode = "manual";
+        chapter.anchorWordId = null;
+      }
+      chapter.start = start2;
+      delete chapter.needsReview;
+      return chapter;
+    });
+    validateProject({ ...project(), chapters: result });
+    return result;
+  }
+  function showChapters(resume = false) {
+    if (!resume) ui.chapterDrafts = clone(project().chapters || []).map((c) => ({ ...c, timeText: c.start == null ? "" : clock(c.start) }));
+    modal(`<header><h2>Chapters</h2><button data-action="close-modal" aria-label="Close chapters">×</button></header><p>Optional chapter markers. Enter a name and start time. Your recording stays unchanged.</p><div id="chapter-list">${ui.chapterDrafts.map((c, i) => `<section class="chapter-row" data-chapter-row="${i}"><label class="field-label">Name<input data-chapter-title maxlength="200" aria-label="Chapter ${i + 1} name" value="${esc(c.title)}"></label><label class="field-label">Start time<input data-chapter-time inputmode="decimal" aria-label="Chapter ${i + 1} start time" placeholder="Not placed" value="${esc(c.timeText)}"></label><label class="field-label">Heading<select data-chapter-level aria-label="Chapter ${i + 1} heading">${Array.from({ length: 6 }, (_, n) => `<option value="${n + 1}" ${c.level === n + 1 ? "selected" : ""}>${n === 0 ? "Chapter" : n === 1 ? "Subchapter" : "Heading " + (n + 1)}</option>`).join("")}</select></label><button class="chapter-remove" data-action="chapter-remove" data-index="${i}" aria-label="Remove chapter ${i + 1}">×</button><small>${c.needsReview ? "Recording changed — review this time." : c.timeText ? c.timeMode === "matched" ? "Matched to speech" : "Manual timestamp" : "Not placed — match the reference or enter a time."}</small></section>`).join("") || '<p class="small">No chapters yet. Use ＋ to add one, or import reference text with Word headings.</p>'}</div><p id="chapter-error" role="status" aria-live="polite"></p><footer><button class="secondary" data-action="chapter-add" aria-label="Add chapter">＋</button>${referenceOf(project())?.chapters?.some((c) => c.isHeading) && project().cues.length ? '<button class="secondary" data-action="chapter-match">Match imported headings</button>' : ""}<button class="primary" data-action="save-chapters">Save chapters</button></footer>`);
+  }
+  function chapterError(fn) {
+    try {
+      fn();
+    } catch (error) {
+      $("#chapter-error").textContent = error.message || String(error);
+    }
+  }
+  function matchChapterDrafts() {
+    const p = clone(project());
+    p.chapters = chapterDraftValues();
+    const matched = matchScript(p, referenceOf(p), { correct: false });
+    if (matched.matched < Math.max(1, referenceOf(p).words.length * 0.65)) throw Error("Not enough reference text matched the transcript. Match timings first or enter chapter times manually.");
+    ui.chapterDrafts = p.chapters.map((c) => ({ ...c, timeText: c.start == null ? "" : clock(c.start) }));
+    showChapters(true);
+  }
   function showExport(target = project()) {
+    if (ui.exporting) return;
+    if (!target) return;
     if (target.id === project()?.id && !applyDrafts()) return;
     ui.exportProjectId = target.id;
     modal(
-      `<header><h2>Export transcript</h2><button data-action="close-modal" aria-label="Close export">×</button></header><p>Export your edited subtitles. Timing JSON retains word timings and original recognition for Storyboard Studio.</p><div class="export-grid">${[
+      `<header><h2>Export transcript</h2><button data-action="close-modal" aria-label="Close export">×</button></header><p>Export your edited subtitles. Timing JSON retains word timings and original recognition for Storyboard Studio.</p>${(target.chapters || []).some((c) => c.start == null || c.needsReview) ? '<p class="chapter-warning">Some chapters need a start time or review. Only placed chapters appear in DOCX and TXT; all chapter entries stay in your editable project.</p>' : ""}<div class="export-grid">${[
         ["docx", "Word document"],
         ["txt", "Plain text"],
         ["srt", "Subtitles"],
@@ -3216,51 +3481,81 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
         ([format, label]) => `<button data-export="${format}"><strong>.${format}</strong><span>${label}</span></button>`
       ).join(
         ""
-      )}</div><label class="check-label"><input id="export-timestamps" type="checkbox"> Include timestamps in DOCX / TXT</label><p class="small">Use Save project to keep an editable backup. Audio is linked separately.</p>`
+      )}</div><label class="check-label"><input id="export-timestamps" type="checkbox"> Include timestamps in DOCX / TXT</label><p id="export-status" class="small" role="status" aria-live="polite"></p><p class="small">The editable .subtitler export is an independent copy, including its available audio. Other formats contain text and timing.</p>`
     );
   }
   async function download(format) {
-    const target = projects.find((p) => p.id === ui.exportProjectId) || project();
-    if (target.id === project()?.id && !applyDrafts()) return;
-    if (format === "subtitler" && native()) {
-      const path2 = await invoke("choose_document_save", { name: target.name });
-      if (!path2) return;
-      const copy = standalone(target);
-      copy.filePath = path2;
-      await invoke("write_document", { path: path2, data: JSON.stringify(copy) });
-      toast("Subtitler project exported with its available audio.");
-      closeModal();
-      return;
-    }
-    const output = await makeExport(target, format, {
-      timestamps: !!$("#export-timestamps")?.checked
-    }), blob = new Blob([output.data], { type: output.mime });
-    if (native()) {
-      const data = await new Promise((r, j) => {
-        const f = new FileReader();
-        f.onload = () => r(String(f.result).split(",")[1]);
-        f.onerror = j;
-        f.readAsDataURL(blob);
-      });
-      if (target.studioLink?.directory && format !== "subtitler") {
-        await invoke("write_subtitler_export", {
-          directory: target.studioLink.directory,
-          studioProjectId: target.studioLink.projectId || null,
-          projectId: target.id,
-          filename: output.name,
-          data
+    if (ui.exporting) return;
+    const targetId = ui.exportProjectId || project()?.id;
+    if (targetId === project()?.id && !applyDrafts()) return;
+    const current = project()?.id === targetId ? project() : projects.find((p) => p.id === targetId);
+    if (!current) throw Error("Open a transcript before exporting.");
+    const target = clone(current);
+    const timestamps = !!$("#export-timestamps")?.checked;
+    const status = $("#export-status");
+    const buttons = [...document.querySelectorAll("[data-export], #export-timestamps")];
+    ui.exporting = true;
+    buttons.forEach((button) => {
+      button.disabled = true;
+    });
+    if (status) status.textContent = "Preparing export…";
+    try {
+      if (format === "subtitler" && native()) {
+        const path2 = await invoke("choose_document_save", { name: target.name });
+        if (!path2) {
+          if (status) status.textContent = "Export cancelled. Choose a format to try again.";
+          return;
+        }
+        const copy = standalone(target);
+        copy.filePath = path2;
+        await invoke("write_document", { path: path2, data: JSON.stringify(copy) });
+        toast("Subtitler project exported with its available audio.");
+        closeModal();
+        return;
+      }
+      const output = await makeExport(target, format, {
+        timestamps
+      }), blob = new Blob([output.data], { type: output.mime });
+      if (native()) {
+        const data = await new Promise((r, j) => {
+          const f = new FileReader();
+          f.onload = () => r(String(f.result).split(",")[1]);
+          f.onerror = j;
+          f.readAsDataURL(blob);
         });
-        toast("Saved in your chosen project folder.");
-      } else if (await invoke("save_export", { filename: output.name, data }))
-        toast("Export saved.");
-    } else {
-      const url = URL.createObjectURL(blob), a = document.createElement("a");
-      a.href = url;
-      a.download = output.name;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1500);
+        if (target.studioLink?.directory && format !== "subtitler") {
+          await invoke("write_subtitler_export", {
+            directory: target.studioLink.directory,
+            studioProjectId: target.studioLink.projectId || null,
+            projectId: target.id,
+            filename: output.name,
+            data
+          });
+          toast("Saved in your chosen project folder.");
+        } else {
+          if (!await invoke("save_export", { filename: output.name, data })) {
+            if (status) status.textContent = "Export cancelled. Choose a format to try again.";
+            return;
+          }
+          toast("Export saved.");
+        }
+      } else {
+        const url = URL.createObjectURL(blob), a = document.createElement("a");
+        a.href = url;
+        a.download = output.name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+      }
+      closeModal();
+    } catch (error) {
+      if (status) status.textContent = "Could not export: " + (error.message || String(error));
+      else report(error);
+    } finally {
+      ui.exporting = false;
+      buttons.forEach((button) => {
+        button.disabled = false;
+      });
     }
-    closeModal();
   }
   function splitAt(cueId, wordId) {
     if (ui.busy) return;
@@ -3399,9 +3694,12 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
     }
     modal(`<header><h2>Open Recent</h2><button data-action="close-modal">×</button></header><div class="recent-projects">${[...paths].slice(0, 30).map(([path2, p]) => `<button data-recent-path="${esc(path2)}">${esc(p.name)}<small>${esc(path2)}</small></button>`).join("") || "No recent projects."}</div>`);
   }
+  function referenceText(ref) {
+    return ref?.chapters?.some((c) => typeof c.text === "string") ? ref.chapters.map((c) => c.text || "").join("\n\n") : ref?.words?.map((w) => w.text).join(" ") || "";
+  }
   function referencePanel() {
     const ref = project().useScript === false ? null : project().referenceInput || project().availableScript;
-    const text = ref?.chapters?.map((c) => c.text || "").join("\n\n") || ref?.words?.map((w) => w.text).join(" ") || "";
+    const text = referenceText(ref);
     modal(`<header><h2>Reference text</h2><button data-action="close-modal">×</button></header><textarea id="reference-input" placeholder="Paste reference text here…" aria-label="Reference text">${esc(text)}</textarea><footer><button class="secondary" data-action="import-reference">Import text…</button><button class="secondary" data-action="clear-reference">Clear</button><button class="primary" data-action="apply-reference">Save reference</button></footer>`);
   }
   async function importReference() {
@@ -3450,8 +3748,35 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       } else $("#transcript-file").click();
     },
     "reference-text": referencePanel,
+    "chapters": () => showChapters(),
+    "chapter-add": () => {
+      captureChapterDrafts();
+      const time = $("#audio").currentTime || 0;
+      ui.chapterDrafts.push({ id: uid(), title: "", level: 1, start: time, timeText: clock(time), timeMode: "manual", origin: "manual" });
+      showChapters(true);
+      $("#chapter-list [data-chapter-row]:last-child input")?.focus();
+    },
+    "chapter-remove": (button) => {
+      captureChapterDrafts();
+      ui.chapterDrafts.splice(Number(button.dataset.index), 1);
+      showChapters(true);
+    },
+    "chapter-match": () => chapterError(matchChapterDrafts),
+    "save-chapters": () => chapterError(() => {
+      const chapters = chapterDraftValues();
+      commit("Edit chapters", (p) => {
+        p.chapters = chapters;
+      });
+      closeModal();
+      wave.draw();
+    }),
+    "chapter-seek": (button) => seek(Number(button.dataset.start)),
     "apply-reference": () => {
       const text = $("#reference-input").value;
+      if (text === referenceText(referenceOf(project()))) {
+        closeModal();
+        return;
+      }
       commit("Change reference text", (p) => {
         if (text.trim()) {
           p.referenceInput = parseScript(text);
@@ -3588,6 +3913,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       readOptions();
       project().referenceInput = clone(project().availableScript);
       project().useScript = true;
+      adoptReferenceChapters(project(), project().referenceInput);
       save();
       showOptions();
     },
@@ -3733,6 +4059,11 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
   };
   document.addEventListener("click", async (e) => {
     try {
+      const exportButton = e.target.closest("[data-export]");
+      if (exportButton) {
+        if (!exportButton.disabled) await download(exportButton.dataset.export);
+        return;
+      }
       const tab = e.target.closest("[data-settings-tab]");
       if (tab) {
         document.querySelectorAll("[data-settings-tab]").forEach((b) => b.setAttribute("aria-selected", String(b === tab)));

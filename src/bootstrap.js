@@ -12,7 +12,7 @@
     var title = document.createElement('h1'); title.textContent = 'Subtitler could not open';
     var explanation = document.createElement('p'); explanation.textContent = 'The interface could not finish starting. Your saved transcripts and audio have not been deleted.';
     var detail = document.createElement('textarea'); detail.readOnly = true; detail.rows = 7; detail.setAttribute('aria-label', 'Startup error details');
-    detail.value = 'Subtitler 0.8.1\nStage: ' + stage + '\n' + message(error) + '\nBrowser: ' + navigator.userAgent;
+    detail.value = 'Subtitler 0.8.3\nStage: ' + stage + '\n' + message(error) + '\nBrowser: ' + navigator.userAgent;
     var actions = document.createElement('div'); actions.className = 'startup-error-actions';
     var retry = document.createElement('button'); retry.className = 'primary'; retry.textContent = 'Retry opening'; retry.onclick = function () { location.reload(); };
     var copy = document.createElement('button'); copy.className = 'secondary'; copy.textContent = 'Copy error details'; copy.onclick = function () { detail.focus(); detail.select(); try { document.execCommand('copy'); } catch (_) {} };

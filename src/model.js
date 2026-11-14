@@ -120,6 +120,7 @@ export function newProject(name = "Untitled transcript", source = {}) {
     model: "",
     sourceWords: [],
     cues: [],
+    chapters: [],
     recognition: null,
   };
 }
@@ -502,6 +503,18 @@ export function validateProject(raw) {
   p.source ||= {};
   p.id = typeof p.id === "string" ? p.id : uid();
   p.name = String(p.name || "Transcript").slice(0, 200);
+  if (p.chapters !== undefined && (!Array.isArray(p.chapters) || p.chapters.length > 10000))
+    throw Error('Invalid chapter list.');
+  p.chapters ||= [];
+  const chapterIds = new Set();
+  for (const chapter of p.chapters) {
+    if (!chapter || typeof chapter.id !== 'string' || !chapter.id || chapterIds.has(chapter.id) ||
+        typeof chapter.title !== 'string' || !chapter.title.trim() || chapter.title.length > 200 ||
+        !Number.isInteger(chapter.level) || chapter.level < 1 || chapter.level > 6 ||
+        (chapter.start !== null && (!finite(chapter.start) || chapter.start < 0 || chapter.start > 172800)) ||
+        !['manual','matched'].includes(chapter.timeMode)) throw Error('Invalid chapter name, time or identity.');
+    chapterIds.add(chapter.id);
+  }
   for (const c of p.cues) {
     if (
       typeof c.id !== "string" ||
@@ -631,6 +644,7 @@ export function timingExport(p) {
       ),
     ],
     pauses: clone(p.pauses || []),
+    chapters: clone(p.chapters || []),
     speakers: clone(p.speakerNames || {}),
     source: {
       name: p.source.name,

@@ -1,5 +1,6 @@
 import { clock, cueText, timingExport } from "./model.js";
 import { captionLines } from "./workflow.js";
+import { transcriptBlocks } from './chapters.js';
 const xml = (s) =>
   String(s ?? "")
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
@@ -22,12 +23,9 @@ export const safeName = (s) =>
     .trim() || "Transcript";
 export function textExport(p, timestamps = false) {
   return (
-    p.cues
-      .map(
-        (c) =>
-          (timestamps ? `[${clock(c.start)} → ${clock(c.end)}] ` : "") +
-          cueText(c),
-      )
+    transcriptBlocks(p)
+      .map(c => c.kind === 'heading' ? c.title :
+          (timestamps ? `[${clock(c.start)} → ${clock(c.end)}] ` : "") + c.text)
       .join("\n\n") + "\n"
   );
 }
@@ -131,17 +129,17 @@ export async function docxExport(p, timestamps = false) {
     "word/_rels/document.xml.rels",
     relationships([["rId1", "styles", "styles.xml"]]),
   );
-  const paragraph = (text, heading = false) =>
-    `<w:p><w:pPr>${heading ? '<w:pStyle w:val="Heading1"/>' : ""}<w:spacing w:after="180"/></w:pPr><w:r><w:t xml:space="preserve">${xml(text).replaceAll("\n", '</w:t><w:br/><w:t xml:space="preserve">')}</w:t></w:r></w:p>`;
+  const paragraph = (text, style = null) =>
+    `<w:p><w:pPr>${style ? `<w:pStyle w:val="${style}"/>` : ""}<w:spacing w:after="180"/></w:pPr><w:r><w:t xml:space="preserve">${xml(text).replaceAll("\n", '</w:t><w:br/><w:t xml:space="preserve">')}</w:t></w:r></w:p>`;
   z.file(
     "word/document.xml",
     declaration +
-      `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraph(p.name, true)}${p.cues.map((c) => paragraph((timestamps ? `[${clock(c.start)} → ${clock(c.end)}] ` : "") + cueText(c))).join("")}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`,
+      `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraph(p.name, 'Title')}${transcriptBlocks(p).map(c => c.kind === 'heading' ? paragraph(c.title,'Heading'+c.level) : paragraph((timestamps ? `[${clock(c.start)} → ${clock(c.end)}] ` : "") + c.text)).join("")}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`,
   );
   z.file(
     "word/styles.xml",
     declaration +
-      '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Cambria" w:hAnsi="Cambria" w:eastAsia="Yu Mincho"/><w:sz w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:sz w:val="36"/></w:rPr></w:style></w:styles>',
+      '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Cambria" w:hAnsi="Cambria" w:eastAsia="Yu Mincho"/><w:sz w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/></w:pPr><w:rPr><w:b/><w:sz w:val="40"/></w:rPr></w:style>'+Array.from({length:6},(_,i)=>`<w:style w:type="paragraph" w:styleId="Heading${i+1}"><w:name w:val="heading ${i+1}"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="${i}"/></w:pPr><w:rPr><w:b/><w:sz w:val="${Math.max(24,36-i*2)}"/></w:rPr></w:style>`).join('')+'</w:styles>',
   );
   return z.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 }
