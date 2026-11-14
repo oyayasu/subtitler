@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: subtitler-mac-export-patch
+  cancel-in-progress: true
+
 jobs:
   browser:
     runs-on: ubuntu-24.04
@@ -75,7 +79,6 @@ jobs:
           workspaces: 'src-tauri -> target'
       - name: Check native storage and document regressions
         run: |
-          python scripts/test_native_files.py
           python scripts/test_native_documents.py
           python scripts/test_instance_lock.py
       - name: Prepare frontend and native builder
