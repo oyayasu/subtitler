@@ -1,1 +1,16 @@
-{"bundle":{"icon":["icons/icon.png","icons/icon.icns"]}}
+{
+  "bundle": {
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.icns"
+    ],
+    "resources": {
+      "icons/document.icns": "document.icns",
+      "icons/document.ico": "document.ico",
+      "youtube-tools/": "youtube-tools/"
+    }
+  },
+  "build": {
+    "beforeBuildCommand": "python3 scripts/prepare_youtube_tools.py"
+  }
+}
