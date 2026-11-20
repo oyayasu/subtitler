@@ -2874,7 +2874,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
     wave.invalidate();
     void wave.load();
   }
-  async function audioInput(input, relink = false) {
+  async function audioInput(input, relink = false, suggestedName = "") {
     if (ui.busy) return;
     const isPath = typeof input === "string", name = isPath ? input.split(/[\\/]/).at(-1) : input.name;
     let recordingInfo = isPath && native() ? await invoke("audio_file_info", { path: input }) : null;
@@ -2910,7 +2910,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       p.pauses = [];
       invalidateChapterTimes(p);
     }
-    if (!p.source.name && !p.cues.length && !p.referenceInput) p.name = distinctName(name.replace(/\.[^.]+$/, ""), projects.filter((x) => !x.studioLink));
+    if (!p.source.name && !p.cues.length && !p.referenceInput) p.name = distinctName((suggestedName || name.replace(/\.[^.]+$/, "")).slice(0, 200), projects.filter((x) => !x.studioLink));
     if (!old) await openProject(p);
     const priorDuration = p.source.duration || 0, priorSize = p.source.size;
     p.source = {
@@ -3123,11 +3123,11 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       if (lastSaveError) throw lastSaveError;
       await openProject(newProject());
     }
-    await audioInput(result);
+    await audioInput(result, false, session.title);
     if (!ui.closing && project()?.source.path === result) await transcribe();
   }
   function adoptSubtitles(imported, confirmed = false) {
-    if ((project().cues.length || project().referenceInput) && !confirmed) {
+    if ((project().cues.length || project().referenceInput && imported.recognition?.engine === "YouTube captions") && !confirmed) {
       ui.pendingSubtitles = { imported, projectId: project().id };
       modal(`<header><h2>Replace current subtitles?</h2></header><p>These captions will replace the current subtitles and reference text. You can undo this import.</p><footer><button data-action="close-modal">Cancel</button><button class="primary" data-action="confirm-subtitles">Import subtitles</button></footer>`);
       return;

@@ -3,7 +3,7 @@
   "target": "safari13.1",
   "sources": {
     "src/alignment.js": "294fb7abacc543cee94c5e77a969f1663e7ab15178d214a17f5bdcc556b2348b",
-    "src/app.js": "6ea96985af5338436263d989512ce8397d6490369a73afb3fb829d1801deff02",
+    "src/app.js": "5a680df5ca753a288643f23fb96ab89d5b4743fb6a6a468d6f036eecf21eb5bd",
     "src/chapters.js": "1540dc495f9107fd955574e51a09b01a9052e44de23d46587e5e566487ecd787",
     "src/db.js": "fed9f2af759b16c98bba1276c9b18e532259c7eb2f20e379635e0bbc2ac38e21",
     "src/document-model.js": "5cc5cddcd255c6244f5c42db701f974f1c218a155be2eabdeec982b302f22bb4",
@@ -21,5 +21,5 @@
     "src/workspace-discovery.js": "e32251e56e1b9ffc8ec3ff11b4e8a7ef86d5f284912fe158425d00e49c089739",
     "src/youtube.js": "b6d1974a9d4ab5be56256d0e6a27a5f910ce76295931d661794c9df0142da028"
   },
-  "bundleSha256": "9d563c694593547cc6189a627c1ff62a162b3b14cf30dc46dbc6725459405daf"
+  "bundleSha256": "1689d5b582f6c67b44f1761ca7c967070a5c6169565cc727c8edc965435f8f4b"
 }
