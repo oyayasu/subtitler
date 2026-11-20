@@ -6,6 +6,7 @@ mod instance_guard;
 mod project_lock;
 mod document_windows;
 mod engine;
+mod youtube;
 mod project_files;
 mod audio_identity;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -435,7 +436,7 @@ pub fn run() {
             for(id,text)in [("new-project","New"),("open-project","Open…"),("recent-projects","Open Recent…")]{file.append(&MenuItemBuilder::with_id(id,text).build(app)?)?;}
             file.append(&PredefinedMenuItem::separator(app)?)?;
             let imports=Submenu::new(app,"Import",true)?;
-            for(id,text)in [("import-audio","Audio…"),("import-reference","Reference text…"),("import-subtitles","Subtitles…")]{imports.append(&MenuItemBuilder::with_id(id,text).build(app)?)?;}
+            for(id,text)in [("import-audio","Audio…"),("import-reference","Reference text…"),("import-subtitles","Subtitles…"),("import-youtube","YouTube captions…")]{imports.append(&MenuItemBuilder::with_id(id,text).build(app)?)?;}
             file.append(&imports)?;file.append(&MenuItemBuilder::with_id("project-folder","Open Storyboard project…").build(app)?)?;
             file.append(&PredefinedMenuItem::separator(app)?)?;
             for(id,text)in [("save-project","Save"),("save-as","Save As…"),("reveal-transcript","Show saved project")]{file.append(&MenuItemBuilder::with_id(id,text).build(app)?)?;}
@@ -472,6 +473,7 @@ pub fn run() {
             move_transcript_folder,document_windows::take_document_open,open_document,allocate_document,write_document,choose_document_save,choose_transcript_directory,default_transcript_directory,
             audio_file_info,reveal_transcript_file,read_studio_request,choose_project_folder,inspect_project_folder,save_project_files,write_subtitler_export,read_script_document,
             discover_tools,
+            youtube::youtube_import,
             audio_status,
             pick_file,
             read_transcript,

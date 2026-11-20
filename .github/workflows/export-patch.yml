@@ -2,14 +2,14 @@ name: Subtitler Mac export and chapters patch
 
 on:
   push:
-    branches: [fix/export-buttons-0.8.3]
+    branches: [fix/export-buttons-0.8.3, feature/youtube-captions]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: subtitler-mac-export-patch
+  group: subtitler-mac-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -44,11 +44,13 @@ jobs:
           TEST_LINKED=1 node tests/exports-dom.mjs
       - name: Check existing document workflows
         run: node tests/documents07-ui.mjs
+      - name: Exercise YouTube caption imports in the editor
+        run: node tests/youtube-ui.mjs
       - name: Retain generated exports and test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Subtitler-0.8.3-export-test-files
+          name: Subtitler-0.8.4-export-test-files
           path: test-output/
           if-no-files-found: warn
 
@@ -94,16 +96,18 @@ jobs:
           bash scripts/generate_macos_icon.sh
           npx tauri build --ci --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json --bundles app,dmg
           mkdir -p release
-          package='package/Subtitler-0.8.3-macOS-Apple-Silicon'
+          package='package/Subtitler-0.8.4-macOS-Apple-Silicon'
           mkdir -p "$package"
           ditto src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Subtitler.app "$package/Subtitler.app"
-          cp INSTALL_MACOS.sh EXPORT_PATCH_083.md "$package/"
-          ditto -c -k --sequesterRsrc --keepParent "$package" release/Subtitler-0.8.3-macOS-Apple-Silicon.zip
+          cp INSTALL_MACOS.sh "$package/"
+          ditto -c -k --sequesterRsrc --keepParent "$package" release/Subtitler-0.8.4-macOS-Apple-Silicon.zip
           cp src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg release/
+          "$package/Subtitler.app/Contents/Resources/youtube-tools/yt-dlp" --version
+          "$package/Subtitler.app/Contents/Resources/youtube-tools/deno" --version
           codesign --verify --deep --strict src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Subtitler.app
       - name: Retain installers
         uses: actions/upload-artifact@v4
         with:
-          name: Subtitler-0.8.3-${{ matrix.name }}
+          name: Subtitler-0.8.4-${{ matrix.name }}
           path: release/*
           if-no-files-found: error

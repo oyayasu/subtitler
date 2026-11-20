@@ -17,7 +17,11 @@
       }
     },
     "resources": {
-      "icons/document.ico": "document.ico"
+      "icons/document.ico": "document.ico",
+      "youtube-tools/": "youtube-tools/"
     }
+  },
+  "build": {
+    "beforeBuildCommand": "python scripts/prepare_youtube_tools.py"
   }
 }

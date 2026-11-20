@@ -90,7 +90,7 @@ export function tokenize(text) {
   if (words.length) words[0].gap = "";
   return words;
 }
-function distribute(parts, start, end, quality = "estimated") {
+export function distribute(parts, start, end, quality = "estimated") {
   const total = parts.reduce((n, w) => n + Math.max(1, w.text.length), 0);
   let used = 0;
   return parts.map((w) => {

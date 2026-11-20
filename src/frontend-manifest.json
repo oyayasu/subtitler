@@ -3,13 +3,13 @@
   "target": "safari13.1",
   "sources": {
     "src/alignment.js": "294fb7abacc543cee94c5e77a969f1663e7ab15178d214a17f5bdcc556b2348b",
-    "src/app.js": "1b8d94c679d4f68ca6e9b1cae0576f676fb3da95c0b67863b0ff5cf0ad84ab9b",
+    "src/app.js": "5a680df5ca753a288643f23fb96ab89d5b4743fb6a6a468d6f036eecf21eb5bd",
     "src/chapters.js": "1540dc495f9107fd955574e51a09b01a9052e44de23d46587e5e566487ecd787",
     "src/db.js": "fed9f2af759b16c98bba1276c9b18e532259c7eb2f20e379635e0bbc2ac38e21",
     "src/document-model.js": "5cc5cddcd255c6244f5c42db701f974f1c218a155be2eabdeec982b302f22bb4",
     "src/exports.js": "504b40cc7238acbd8393baa2af164806fa47eccba837f0272d1c52ec1fa4173b",
     "src/match-timing.js": "bcd4a81a8dbc952ddb0f46014e17b9d9485001a0c71f33e99687c6d445a9c4bd",
-    "src/model.js": "169a175d745d8a8b8b33b1a21e65ea329d70564f7920249a3d1374f38366fcc9",
+    "src/model.js": "dea9a56a138ea2f4ba638e5dd59bc1c83c7a7a833da5ad9af948794224a3d8fb",
     "src/recognition-quality.js": "03ecd5a97c7c04b9c522c5bee0d836e226f5101e6e933916cd987f17d8e599c3",
     "src/recording-identity.js": "f3a5e611361e8d609eb72fe62f72f3744fa1515c24d4c2d253a2bf58bbad05c0",
     "src/save-paths.js": "43c36bddab9f1fc64682bd7aa7c31a59edd5fe8b67399db1ef6b8569955a1517",
@@ -18,7 +18,8 @@
     "src/waveform.js": "4855c7778bef7f231ad1b05e1d0cfcce4732bd32f391d04e2b276b97c305c2a7",
     "src/window-events.js": "8ad39bcbaf4703e20e1ed962fe99c41f98862c45f33bc28d4d49e2d15a93becf",
     "src/workflow.js": "48e14356f463409704895ceadfcc87cb9b5f491661791bdedcb2d0b0cbcace25",
-    "src/workspace-discovery.js": "e32251e56e1b9ffc8ec3ff11b4e8a7ef86d5f284912fe158425d00e49c089739"
+    "src/workspace-discovery.js": "e32251e56e1b9ffc8ec3ff11b4e8a7ef86d5f284912fe158425d00e49c089739",
+    "src/youtube.js": "b6d1974a9d4ab5be56256d0e6a27a5f910ce76295931d661794c9df0142da028"
   },
-  "bundleSha256": "ca2775650acfe854d79b46da21e5c1041a97a7cc46374347de5d91b1ced1cb4f"
+  "bundleSha256": "1689d5b582f6c67b44f1761ca7c967070a5c6169565cc727c8edc965435f8f4b"
 }

@@ -1,10 +1,4 @@
 (() => {
-  // src/window-events.js
-  function listenDocument(api, event, handler) {
-    const label = api.webviewWindow?.getCurrentWebviewWindow?.().label || api.window?.getCurrentWindow?.().label;
-    return api.event.listen(event, handler, label ? { target: { kind: "WebviewWindow", label } } : void 0);
-  }
-
   // src/model.js
   var uid = () => {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -522,6 +516,68 @@
       originalWords: clone(p.sourceWords),
       notes: "Automatic word times remain approximate. WhisperX provenance is retained when used. Unresolved, edited or imported words may keep earlier or interpolated timing."
     };
+  }
+
+  // src/youtube.js
+  function youtubeId(input) {
+    const invalid = "Paste a YouTube video link, such as youtube.com/watch?v=… or youtu.be/…";
+    let url;
+    try {
+      const text = input.trim();
+      url = new URL(text.includes("://") ? text : "https://" + text);
+    } catch {
+      throw Error(invalid);
+    }
+    const host = url.hostname.toLowerCase();
+    if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.port) throw Error(invalid);
+    const parts = url.pathname.split("/").filter(Boolean);
+    let id;
+    if (["youtu.be", "www.youtu.be"].includes(host) && parts.length === 1) id = parts[0];
+    if (["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "www.youtube-nocookie.com"].includes(host)) {
+      if (url.pathname === "/watch") id = url.searchParams.get("v");
+      else if (["shorts", "live", "embed"].includes(parts[0]) && parts.length === 2) id = parts[1];
+    }
+    if (!/^[\w-]{11}$/.test(id || "")) throw Error(invalid);
+    return id;
+  }
+  var languageKey = (code) => (code || "").toLowerCase().replace(/-orig$/, "");
+  function preferredTrack(tracks, preference, original) {
+    const target = languageKey(preference === "auto" ? original : preference);
+    const matching = !target ? tracks : tracks.filter((track) => languageKey(track.code).split("-")[0] === target.split("-")[0]);
+    return [...matching].sort((a, b) => Number(a.automatic) - Number(b.automatic) || Number(languageKey(b.code) === target) - Number(languageKey(a.code) === target))[0] || null;
+  }
+  function youtubeProject(data, videoId, title, track) {
+    const project2 = newProject(title || "YouTube captions");
+    const lines = (data?.events || []).filter((event) => Array.isArray(event.segs)).map((event) => ({
+      start: event.tStartMs,
+      duration: event.dDurationMs,
+      text: event.segs.map((seg) => typeof seg.utf8 === "string" ? seg.utf8 : "").join("").trim()
+    })).filter((line) => line.text && Number.isFinite(line.start) && line.start >= 0).sort((a, b) => a.start - b.start);
+    if (lines.length > 5e4) throw Error("Import at most 50,000 captions per project.");
+    for (const [index, line] of lines.entries()) {
+      const start2 = line.start / 1e3;
+      const end = (line.duration > 0 ? line.start + line.duration : lines[index + 1]?.start) / 1e3;
+      if (!Number.isFinite(end) || end <= start2) continue;
+      const words = distribute(tokenize(line.text), start2, end);
+      if (words.length) project2.cues.push({ id: uid(), start: start2, end, words });
+    }
+    if (!project2.cues.length) throw Error("This track contains no timed captions.");
+    project2.source.duration = Math.max(...project2.cues.map((c) => c.end));
+    project2.language = languageKey(track.code);
+    project2.recognition = {
+      engine: "YouTube captions",
+      videoId,
+      language: track.code,
+      automatic: track.automatic,
+      note: "Caption timings from YouTube. Individual word timings are estimated."
+    };
+    return validateProject(project2);
+  }
+
+  // src/window-events.js
+  function listenDocument(api, event, handler) {
+    const label = api.webviewWindow?.getCurrentWebviewWindow?.().label || api.window?.getCurrentWindow?.().label;
+    return api.event.listen(event, handler, label ? { target: { kind: "WebviewWindow", label } } : void 0);
   }
 
   // src/chapters.js
@@ -2448,8 +2504,8 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
   }
   function setup() {
     document.documentElement.dataset.theme = prefs.theme === "light" ? "light" : "dark";
-    $("#app").innerHTML = `<main class="workspace"><header class="topbar"><details class="file-menu"><summary>File</summary><div><button data-action="new-project">New</button><button data-action="open-project">Open…</button><button data-action="recent-projects">Open Recent…</button><hr><button data-action="import-audio">Import Audio…</button><button data-action="import-reference">Import Reference text…</button><button data-action="import-subtitles">Import Subtitles…</button><button data-action="project-folder">Open Storyboard project…</button><hr><button data-action="save-project">Save</button><button data-action="save-as">Save As…</button><button data-action="reveal-transcript">Show saved project</button><button data-action="move-transcript-folder">Move Subtitler folder…</button><hr><button data-action="export">Export…</button><button data-action="close-project">Close</button></div></details><span class="brand">SUBTITLER</span><div class="project-title"><input id="project-name" aria-label="Transcript name" maxlength="200"><span id="saved" role="status" hidden></span></div><div class="top-actions"><button class="secondary" data-action="settings" aria-label="Settings">⚙</button><button class="secondary" data-action="save-project">Save project</button><button class="primary" data-action="export">Export ↗</button></div></header><div id="document-status"><button id="saved-location" data-action="reveal-transcript"></button><strong id="studio-connection" hidden></strong></div>
- <section class="player"><audio id="audio" preload="metadata"></audio><div id="audio-placeholder"><button class="secondary" data-action="import-audio">＋ Import audio</button><small>or drop an audio file here</small></div><div class="waveform-wrap" id="waveform-shell"><div class="waveform-top"><button data-action="play-pause" id="play-pause" aria-label="Play">▶</button><span id="player-time">00:00:00.000 / 00:00:00.000</span><button class="audio-name" id="audio-name" data-action="audio-location"></button><span class="waveform-spacer"></span><button class="secondary" data-action="relink" hidden>Attach audio…</button></div><div class="waveform-resize-target"><div id="chapter-markers" aria-label="Chapter markers"></div><canvas id="waveform" height="88" role="slider" tabindex="0" aria-label="Audio playhead" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas><div class="panel-resizer waveform-resizer" role="separator" tabindex="0" aria-label="Resize waveform height" aria-orientation="horizontal"></div></div><div class="waveform-bottom"><span id="waveform-status" role="status"></span><span id="audio-error" role="status"></span><label>Speed<select id="playback-rate" aria-label="Playback speed"><option value=".5">0.5×</option><option value=".75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><label class="volume-control">Volume<input type="range" id="volume" min="0" max="1" step=".05" value="1" aria-label="Volume"></label></div></div>
+    $("#app").innerHTML = `<main class="workspace"><header class="topbar"><details class="file-menu"><summary>File</summary><div><button data-action="new-project">New</button><button data-action="open-project">Open…</button><button data-action="recent-projects">Open Recent…</button><hr><button data-action="import-audio">Import Audio…</button><button data-action="import-reference">Import Reference text…</button><button data-action="import-subtitles">Import Subtitles…</button><button data-action="import-youtube">YouTube captions…</button><button data-action="project-folder">Open Storyboard project…</button><hr><button data-action="save-project">Save</button><button data-action="save-as">Save As…</button><button data-action="reveal-transcript">Show saved project</button><button data-action="move-transcript-folder">Move Subtitler folder…</button><hr><button data-action="export">Export…</button><button data-action="close-project">Close</button></div></details><span class="brand">SUBTITLER</span><div class="project-title"><input id="project-name" aria-label="Transcript name" maxlength="200"><span id="saved" role="status" hidden></span></div><div class="top-actions"><button class="secondary" data-action="settings" aria-label="Settings">⚙</button><button class="secondary" data-action="save-project">Save project</button><button class="primary" data-action="export">Export ↗</button></div></header><div id="document-status"><button id="saved-location" data-action="reveal-transcript"></button><strong id="studio-connection" hidden></strong></div>
+ <section class="player"><audio id="audio" preload="metadata"></audio><div id="audio-placeholder"><button class="secondary" data-action="import-audio">＋ Import audio</button><button class="secondary" data-action="import-youtube">YouTube captions…</button><small>or drop an audio file here</small></div><div class="waveform-wrap" id="waveform-shell"><div class="waveform-top"><button data-action="play-pause" id="play-pause" aria-label="Play">▶</button><span id="player-time">00:00:00.000 / 00:00:00.000</span><button class="audio-name" id="audio-name" data-action="audio-location"></button><span class="waveform-spacer"></span><button class="secondary" data-action="relink" hidden>Attach audio…</button></div><div class="waveform-resize-target"><div id="chapter-markers" aria-label="Chapter markers"></div><canvas id="waveform" height="88" role="slider" tabindex="0" aria-label="Audio playhead" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas><div class="panel-resizer waveform-resizer" role="separator" tabindex="0" aria-label="Resize waveform height" aria-orientation="horizontal"></div></div><div class="waveform-bottom"><span id="waveform-status" role="status"></span><span id="audio-error" role="status"></span><label>Speed<select id="playback-rate" aria-label="Playback speed"><option value=".5">0.5×</option><option value=".75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><label class="volume-control">Volume<input type="range" id="volume" min="0" max="1" step=".05" value="1" aria-label="Volume"></label></div></div>
  <div id="job-status" hidden><div class="job-message"><span id="job-message"></span><button data-action="cancel">Cancel</button></div><progress id="job-progress"></progress></div><div class="transcribe-bar"><label>Language<select id="language"><option value="auto">Auto detect</option><option value="en">English</option><option value="pt">Português</option><option value="es">Español</option><option value="ja">日本語</option></select></label><label class="model-label">Whisper model<select id="model"></select></label><button class="secondary" data-action="transcription-options">Options</button><button class="primary" data-action="transcribe">Transcribe</button><button class="secondary" data-action="improve-timing" hidden>Update word timings</button><button class="secondary" data-action="timing-report" hidden>Timing report</button></div><div id="project-sync-status" role="status" hidden></div></section>
  <section class="editor"><div class="editor-toolbar"><button class="scissors-button" data-action="scissors" title="Split before a word" aria-label="Scissors" aria-pressed="false"><img src="assets/scissors-icon.png" alt=""></button><span class="toolbar-rule"></span><button class="secondary" data-action="reference-text">Reference text</button><button class="secondary" data-action="chapters">Chapters</button><button class="secondary" data-action="clear-transcript">Clear transcript</button><input id="search" type="search" placeholder="Find…" aria-label="Find in transcript"></div><div class="editor-columns"><section class="transcript-panel"><div id="match-reference-prompt" hidden><button class="primary" data-action="match-timings">Match timings</button><small>Match your imported reference text to this recording.</small></div><div id="transcript-list" tabindex="-1"></div></section><div class="panel-resizer inspector-resizer" role="separator" tabindex="0" aria-label="Resize subtitle editor" aria-orientation="vertical"></div><aside class="inspector" id="inspector" aria-label="Subtitle editor"></aside></div></section></main>`;
     wave.mount();
@@ -2561,7 +2617,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
     $("#model").innerHTML = models.length ? models.map(
       (m) => `<option value="${esc(m.path)}" ${m.path === prefs.model ? "selected" : ""}>${esc(m.name)}</option>`
     ).join("") : '<option value="">Choose in Settings</option>';
-    for (const a of ["import-audio", "relink", "transcribe", "improve-timing", "match-timings"])
+    for (const a of ["import-audio", "import-youtube", "relink", "transcribe", "improve-timing", "match-timings"])
       document.querySelectorAll(`[data-action="${a}"]`).forEach(
         (el) => el.disabled = ui.busy || (a === "transcribe" || a === "improve-timing") && !p?.source.path || a === "improve-timing" && !p?.cues.length
       );
@@ -2807,7 +2863,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       if (blob) {
         objectUrl = URL.createObjectURL(blob);
         mediaUrl = objectUrl;
-      } else ui.audioMissing = !!p.source.name || !!p.cues.length;
+      } else ui.audioMissing = !!p.source.name || !!p.cues.length && p.recognition?.engine !== "YouTube captions";
     }
     if (epoch !== loadEpoch || project()?.id !== p.id) return;
     const audio = $("#audio");
@@ -2818,7 +2874,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
     wave.invalidate();
     void wave.load();
   }
-  async function audioInput(input, relink = false) {
+  async function audioInput(input, relink = false, suggestedName = "") {
     if (ui.busy) return;
     const isPath = typeof input === "string", name = isPath ? input.split(/[\\/]/).at(-1) : input.name;
     let recordingInfo = isPath && native() ? await invoke("audio_file_info", { path: input }) : null;
@@ -2854,7 +2910,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       p.pauses = [];
       invalidateChapterTimes(p);
     }
-    if (!p.source.name && !p.cues.length && !p.referenceInput) p.name = distinctName(name.replace(/\.[^.]+$/, ""), projects.filter((x) => !x.studioLink));
+    if (!p.source.name && !p.cues.length && !p.referenceInput) p.name = distinctName((suggestedName || name.replace(/\.[^.]+$/, "")).slice(0, 200), projects.filter((x) => !x.studioLink));
     if (!old) await openProject(p);
     const priorDuration = p.source.duration || 0, priorSize = p.source.size;
     p.source = {
@@ -2916,7 +2972,7 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
     const text = isPath ? await invoke("read_transcript", { path: input }) : await input.text();
     let p;
     if (/\.srt$/i.test(name)) {
-      return adoptSubtitles(parseSrt(text, { name }), input);
+      return adoptSubtitles(parseSrt(text, { name }));
     } else {
       let raw;
       try {
@@ -2962,19 +3018,128 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
         validateProject(p);
       } else p = parseWhisper(raw, { name: name.replace(/\.json$/i, "") });
     }
-    if (!/\.(subtitler|whisperdesk)$/i.test(name)) return adoptSubtitles(p, input);
+    if (!/\.(subtitler|whisperdesk)$/i.test(name)) return adoptSubtitles(p);
     await openProject(p);
     await save();
     toast("Opened.");
   }
-  function adoptSubtitles(imported, input) {
-    if (project().cues.length && !ui.importConfirmed) {
-      ui.pendingSubtitles = input;
-      modal(`<header><h2>Replace current subtitles?</h2></header><p>Import these subtitles into the current project. Undo restores the previous subtitles and timing.</p><footer><button data-action="close-modal">Cancel</button><button class="primary" data-action="confirm-subtitles">Import subtitles</button></footer>`);
+  function showYoutubeImport() {
+    if (ui.busy || !applyDrafts()) return;
+    if (!native()) return toast("YouTube import is available in the desktop app.");
+    modal(`<header><h2>Import YouTube captions</h2><button data-action="close-modal" aria-label="Close">×</button></header>
+    <form id="youtube-form"><label class="field-label">YouTube link<input id="youtube-link" placeholder="Paste a video link" autocomplete="off" required></label>
+    <p id="youtube-error" role="status"></p><footer><button type="button" data-action="close-modal">Cancel</button><button class="primary">Find captions</button></footer></form>`);
+    $("#youtube-link").focus();
+    $("#youtube-form").onsubmit = (event) => {
+      event.preventDefault();
+      try {
+        const input = $("#youtube-link").value;
+        ui.youtube = { id: youtubeId(input), projectId: project().id, tracks: [] };
+        void youtubeAction("inspect").catch(report);
+      } catch (error) {
+        $("#youtube-error").textContent = error.message;
+      }
+    };
+  }
+  function youtubeChoices(session, error = "") {
+    const preferred = preferredTrack(session.tracks, prefs.language, session.language);
+    const tracks = session.tracks;
+    const choice = session.choice ?? tracks.indexOf(preferred);
+    const message = !tracks.length ? "No caption tracks available." : choice === -1 ? "Choose another language or transcribe the audio." : "";
+    modal(`<header><h2>Import YouTube captions</h2><button data-action="close-modal" aria-label="Close">×</button></header>
+    <p>${esc(session.title || "YouTube video")}</p>
+    ${tracks.length ? `<label class="field-label">Caption track<select id="youtube-track">
+    ${choice === -1 ? '<option value="-1">Choose a track…</option>' : ""}
+    ${tracks.map((track, i) => `<option value="${i}" ${i === choice ? "selected" : ""}>${esc(track.name)} (${esc(track.code)}) · ${track.automatic ? "Auto-generated" : "Creator captions"}</option>`).join("")}</select></label>` : ""}
+    ${error ? `<p role="alert">YouTube import could not finish.</p><details open><summary>Details</summary><pre class="engine-error">${esc(error)}</pre></details>` : message ? `<p role="status">${esc(message)}</p>` : ""}
+    <footer><button data-action="import-youtube">Change link</button><button data-action="youtube-audio">Transcribe with Whisper</button>
+    ${error && !tracks.length ? '<button data-action="youtube-retry">Retry</button>' : ""}
+    ${tracks.length ? `<button class="primary" data-action="youtube-captions" ${choice === -1 ? "disabled" : ""}>Import captions</button>` : ""}</footer>`);
+    const select2 = $("#youtube-track");
+    if (select2) select2.onchange = () => {
+      session.choice = Number(select2.value);
+      $('[data-action="youtube-captions"]').disabled = session.choice < 0;
+    };
+  }
+  async function youtubeAction(action) {
+    const session = ui.youtube;
+    if (!session || ui.busy || project()?.id !== session.projectId) return;
+    const track = action === "captions" ? session.tracks[Number($("#youtube-track")?.value)] : null;
+    if (action === "captions" && !track) return;
+    if (action === "audio" && (!prefs.ffmpeg || !prefs.whisper || !prefs.model)) {
+      showSettings();
+      $('[data-settings-tab="models"]')?.click();
+      return toast("Choose FFmpeg, whisper-cli and a model before transcribing YouTube audio.");
+    }
+    const progress = { inspect: "Checking YouTube for captions…", captions: "Fetching timed captions…", audio: "Downloading audio for Whisper…" }[action];
+    ui.busy = true;
+    ui.cancelRequested = false;
+    ui.jobId = uid();
+    ui.progress = progress;
+    ui.percent = null;
+    renderHeader();
+    modal(`<p id="youtube-pending" role="status">${progress}</p><footer><button data-action="cancel">Cancel</button></footer>`);
+    let result, failure;
+    try {
+      result = await invoke("youtube_import", {
+        videoId: session.id,
+        action,
+        language: track?.code || null,
+        automatic: track?.automatic || false,
+        ffmpeg: action === "audio" ? prefs.ffmpeg : null
+      });
+    } catch (e) {
+      failure = String(e?.message || e);
+    } finally {
+      ui.busy = false;
+      ui.jobId = null;
+      renderHeader();
+    }
+    if (!$("#youtube-pending") || project()?.id !== session.projectId || ui.closing) return;
+    if (ui.cancelRequested || failure === "Cancelled") {
+      closeModal();
       return;
     }
-    ui.importConfirmed = false;
+    if (failure) return youtubeChoices(session, failure);
+    if (action === "inspect") {
+      Object.assign(session, result);
+      return youtubeChoices(session);
+    }
+    if (action === "captions") {
+      let imported;
+      try {
+        imported = youtubeProject(result, session.id, session.title, track);
+      } catch (error) {
+        return youtubeChoices(session, error.message);
+      }
+      closeModal();
+      adoptSubtitles(imported);
+      return;
+    }
+    closeModal();
+    if (project().source.name || project().cues.length || project().referenceInput || documentPath || project().studioLink) {
+      await save();
+      await studio.flush();
+      if (lastSaveError) throw lastSaveError;
+      await openProject(newProject());
+    }
+    await audioInput(result, false, session.title);
+    if (!ui.closing && project()?.source.path === result) await transcribe();
+  }
+  function adoptSubtitles(imported, confirmed = false) {
+    if ((project().cues.length || project().referenceInput && imported.recognition?.engine === "YouTube captions") && !confirmed) {
+      ui.pendingSubtitles = { imported, projectId: project().id };
+      modal(`<header><h2>Replace current subtitles?</h2></header><p>These captions will replace the current subtitles and reference text. You can undo this import.</p><footer><button data-action="close-modal">Cancel</button><button class="primary" data-action="confirm-subtitles">Import subtitles</button></footer>`);
+      return;
+    }
     commit("Import subtitles", (p) => {
+      if (imported.recognition?.engine === "YouTube captions") {
+        if (!p.source.name) {
+          p.source.duration = imported.source.duration;
+          if (!documentPath && !p.cues.length && !p.referenceInput && !p.documentCreated && p.name === "Untitled transcript") p.name = imported.name;
+        }
+        p.language = imported.language;
+      }
       p.cues = imported.cues;
       p.sourceWords = imported.sourceWords || [];
       p.recognition = imported.recognition;
@@ -3169,6 +3334,12 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
     $("#dialogs").querySelector("input,button,select")?.focus();
   }
   function closeModal() {
+    if (ui.busy && $("#youtube-pending")) {
+      ui.cancelRequested = true;
+      void invoke("cancel_transcription").catch(report);
+    }
+    delete ui.pendingSubtitles;
+    delete ui.youtube;
     $("#dialogs").innerHTML = "";
     delete ui.exportProjectId;
     delete ui.chapterDrafts;
@@ -3742,6 +3913,10 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       if (file) await openDocumentFile(file);
     },
     "import-audio": () => chooseAudio(true),
+    "import-youtube": showYoutubeImport,
+    "youtube-retry": () => youtubeAction("inspect"),
+    "youtube-audio": () => youtubeAction("audio"),
+    "youtube-captions": () => youtubeAction("captions"),
     "import-reference": importReference,
     "import-subtitles": async () => {
       if (native()) {
@@ -3821,12 +3996,10 @@ ${p.subtitleOptions ? captionLines(c.words, p.subtitleOptions).text : wrapCaptio
       ui.audioConfirmed = true;
       await audioInput(input, true);
     },
-    "confirm-subtitles": async () => {
-      const input = ui.pendingSubtitles;
-      delete ui.pendingSubtitles;
+    "confirm-subtitles": () => {
+      const pending = ui.pendingSubtitles;
       closeModal();
-      ui.importConfirmed = true;
-      await readInput(input);
+      if (pending?.projectId === project()?.id) adoptSubtitles(pending.imported, true);
     },
     "choose-transcript-directory": moveTranscriptFolder,
     "move-transcript-folder": moveTranscriptFolder,
