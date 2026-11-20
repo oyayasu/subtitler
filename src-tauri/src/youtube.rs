@@ -23,13 +23,24 @@ fn valid_language(code: &str) -> bool {
     !code.is_empty() && code.len() <= 64 && code.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
 }
 
+fn caption_format(formats: &Value) -> Option<&Value> {
+    formats.as_array()?.iter().find(|format| {
+        format["ext"] == "json3" && format["url"].as_str().and_then(|s| tauri::Url::parse(s).ok())
+            .is_some_and(|url| !url.query_pairs().any(|(key, _)| key == "tlang"))
+    })
+}
+
 fn tracks(info: &Value) -> Value {
     let mut tracks = Vec::new();
     for (key, automatic) in [("subtitles", false), ("automatic_captions", true)] {
         if let Some(languages) = info[key].as_object() {
             for (code, formats) in languages {
                 if !valid_language(code) || code == "live_chat" { continue; }
-                if let Some(format) = formats.as_array().and_then(|rows| rows.iter().find(|r| r["ext"] == "json3")) {
+                // yt-dlp can expose the same original ASR track under en and en-orig.
+                if automatic && code.strip_suffix("-orig").and_then(|base| languages.get(base)).and_then(caption_format).is_some() {
+                    continue;
+                }
+                if let Some(format) = caption_format(formats) {
                     tracks.push(json!({"code":code, "name":format["name"].as_str().unwrap_or(code), "automatic":automatic}));
                 }
             }

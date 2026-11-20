@@ -3,4 +3,5 @@ src-tauri/target/
 .DS_Store
 __pycache__/
 *.pyc
-src-tauri/youtube-tools/
+src-tauri/youtube-tools/*
+!src-tauri/youtube-tools/SOURCES.txt

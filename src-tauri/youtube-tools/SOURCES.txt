@@ -1,0 +1,9 @@
+Subtitler uses yt-dlp to read YouTube media and caption tracks, and Deno for
+the JavaScript runtime used by the YouTube extractor. The package build
+downloads the release assets pinned in scripts/prepare_youtube_tools.py.
+
+yt-dlp source and release notices
+https://github.com/yt-dlp/yt-dlp
+
+Deno source and release notices
+https://github.com/denoland/deno
